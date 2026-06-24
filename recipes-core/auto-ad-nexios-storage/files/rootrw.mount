@@ -1,0 +1,11 @@
+[Unit]
+Description=Auto AD Nexios rootrw backing store
+
+[Mount]
+What=LABEL=rootrw
+Where=/rootrw
+Type=ext4
+Options=defaults
+
+[Install]
+WantedBy=local-fs.target

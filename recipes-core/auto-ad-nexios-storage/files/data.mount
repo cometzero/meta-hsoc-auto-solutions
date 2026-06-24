@@ -1,0 +1,11 @@
+[Unit]
+Description=Auto AD Nexios data partition
+
+[Mount]
+What=PARTLABEL=data
+Where=/data
+Type=ext4
+Options=defaults
+
+[Install]
+WantedBy=local-fs.target
