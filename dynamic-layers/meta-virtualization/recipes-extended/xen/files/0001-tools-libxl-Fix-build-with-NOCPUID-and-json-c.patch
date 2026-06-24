@@ -1,0 +1,35 @@
+From 9b7072697616ffd19fcefcd3ec48eec481faf4e6 Mon Sep 17 00:00:00 2001
+From: Bruce Ashfield <bruce.ashfield@gmail.com>
+Date: Thu, 20 Nov 2025 23:22:59 -0500
+Subject: [PATCH] tools/libxl: Fix build with NOCPUID and json-c
+
+The stub file used when CPUID support is disabled was missing json-c and
+yajl entry points referenced by generated Xen tools code.
+
+Upstream-Status: Inappropriate [oe specific]
+
+Signed-off-by: Bruce Ashfield <bruce.ashfield@gmail.com>
+---
+ tools/libs/light/libxl_nocpuid.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/tools/libs/light/libxl_nocpuid.c b/tools/libs/light/libxl_nocpuid.c
+index 00f6ac3233..8fb1202241 100644
+--- a/tools/libs/light/libxl_nocpuid.c
++++ b/tools/libs/light/libxl_nocpuid.c
+@@ -18,0 +19,15 @@
++#include "libxl_json.h"
++
++#include <yajl/yajl_gen.h>
++
++yajl_gen_status libxl_cpuid_policy_list_gen_json(yajl_gen hand,
++                                                 libxl_cpuid_policy_list *pcpuid);
++
++#ifdef HAVE_LIBJSONC
++int libxl_cpuid_policy_list_gen_jso(json_object **jso_r,
++                                    libxl_cpuid_policy_list *pcpuid)
++{
++    return 0;
++}
++#endif
++
