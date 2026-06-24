@@ -1,0 +1,35 @@
+#
+# SPDX-License-Identifier: MIT
+#
+
+BBLAYERS ?= " \
+    ##OEROOT##/../../arm-zena-css/yocto/meta-zena-css-bsp \
+    ##OEROOT##/../../arm-zena-css/yocto/meta-zena-css-safety-island \
+    ##OEROOT##/../../hsoc-stack/yocto/meta-hsoc-auto-solutions \
+    ##OEROOT##/../../hsoc-stack/yocto/meta-hsoc-bsp \
+    ##OEROOT##/../meta-arm/meta-arm \
+    ##OEROOT##/../meta-arm/meta-arm-toolchain \
+    ##OEROOT##/../meta-bluechi/meta-bluechi \
+    ##OEROOT##/../meta-cassini/meta-cassini-distro \
+    ##OEROOT##/../meta-clang \
+    ##OEROOT##/../meta-ewaol \
+    ##OEROOT##/../meta-openembedded/meta-filesystems \
+    ##OEROOT##/../meta-openembedded/meta-networking \
+    ##OEROOT##/../meta-openembedded/meta-oe \
+    ##OEROOT##/../meta-openembedded/meta-perl \
+    ##OEROOT##/../meta-openembedded/meta-python \
+    ##OEROOT##/../meta-ptx \
+    ##OEROOT##/../meta-secure-core/meta-efi-secure-boot \
+    ##OEROOT##/../meta-secure-core/meta-integrity \
+    ##OEROOT##/../meta-secure-core/meta-secure-core-common \
+    ##OEROOT##/../meta-secure-core/meta-signing-key \
+    ##OEROOT##/../meta-security \
+    ##OEROOT##/../meta-security/meta-parsec \
+    ##OEROOT##/../meta-virtualization \
+    ##OEROOT##/../meta-zephyr/meta-zephyr-core \
+    ##OEROOT##/meta \
+    ##OEROOT##/meta-poky \
+    ##OEROOT##/../../sw-ref-stack/yocto/meta-arm-auto-solutions \
+"
+BBPATH ?= "${TOPDIR}"
+BBFILES ??= ""
