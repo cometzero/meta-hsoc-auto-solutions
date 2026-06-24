@@ -2,6 +2,20 @@
 
 IMAGE_FEATURES:append:pn-nexios-image:auto-ad-nexios = " read-only-rootfs overlayfs-etc"
 IMAGE_INSTALL:append:pn-nexios-image:auto-ad-nexios = " auto-ad-nexios-storage"
+IMAGE_FSTYPES:append:pn-nexios-image:auto-ad-nexios = "${@bb.utils.contains('APOLLO_DM_VERITY', '1', '', ' ext4', d)}"
+
+python __anonymous() {
+    if d.getVar("DISTRO") != "auto-ad-nexios":
+        return
+    if d.getVar("PN") != "nexios-image":
+        return
+    if d.getVar("APOLLO_DM_VERITY") == "1":
+        return
+    if "wic" not in (d.getVar("IMAGE_FSTYPES") or "").split():
+        return
+
+    d.appendVarFlag("do_image_wic", "depends", " %s:do_image_ext4" % d.getVar("PN"))
+}
 
 CONVERSION_CMD:verity:append:pn-nexios-image:auto-ad-nexios = "; auto_ad_nexios_deploy_dm_verity_env ${type}"
 

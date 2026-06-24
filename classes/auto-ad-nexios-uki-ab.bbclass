@@ -8,6 +8,18 @@ inherit uki
 
 IMAGE_CLASSES:append = " uki"
 
+python __anonymous() {
+    if d.getVar("INITRAMFS_IMAGE"):
+        return
+
+    depends = (d.getVarFlag("do_image_complete", "depends") or "").split()
+    depends = [
+        dep for dep in depends
+        if dep not in ("${INITRAMFS_IMAGE}:do_image_complete", ":do_image_complete")
+    ]
+    d.setVarFlag("do_image_complete", "depends", " ".join(depends))
+}
+
 UEFI_SECURE_BOOT ?= "0"
 AUTO_AD_NEXIOS_UEFI_SECURE_BOOT_DEFAULT ?= "0"
 
@@ -130,10 +142,11 @@ python do_uki() {
     require_file(stub, "UKI EFI stub")
     command = append_option(command, "--stub", stub)
 
-    initrd_archive = d.getVar("INITRD_ARCHIVE")
-    initrd = os.path.join(deploy_dir_image, initrd_archive)
-    require_file(initrd, "UKI initramfs")
-    command = append_joined_option(command, "--initrd", initrd)
+    initrd_archive = (d.getVar("INITRD_ARCHIVE") or "").strip()
+    if initrd_archive:
+        initrd = os.path.join(deploy_dir_image, initrd_archive)
+        require_file(initrd, "UKI initramfs")
+        command = append_joined_option(command, "--initrd", initrd)
 
     kernel_filename = d.getVar("UKI_KERNEL_FILENAME")
     if not kernel_filename:
