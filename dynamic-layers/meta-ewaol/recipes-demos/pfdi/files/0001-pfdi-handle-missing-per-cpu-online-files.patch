@@ -1,0 +1,97 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: OpenAI Codex <codex@openai.com>
+Date: Sun, 21 Jun 2026 22:00:00 +0900
+Subject: [PATCH] pfdi: handle missing per-cpu online files
+
+The Linux kernel does not always expose
+/sys/devices/system/cpu/cpuN/online. CPU0 commonly lacks the per-CPU
+online file, and kernels without CPU hotplug can omit the file for all
+online CPUs.
+
+The sample application treated a missing per-CPU online file as an
+offline CPU, so it skipped all configured CPUs on such kernels and never
+started Online PFDI test threads. Fall back to the global
+/sys/devices/system/cpu/online mask before reporting a CPU offline.
+
+Upstream-Status: Pending
+Signed-off-by: OpenAI Codex <codex@openai.com>
+---
+ pfdi-demo/pfdi-common/src/pfdi_common.c | 69 ++++++++++++++++++++++++++++++++-
+ 1 file changed, 68 insertions(+), 1 deletion(-)
+
+diff --git a/pfdi-demo/pfdi-common/src/pfdi_common.c b/pfdi-demo/pfdi-common/src/pfdi_common.c
+index 28b2f31..c721ed9 100644
+--- a/pfdi-demo/pfdi-common/src/pfdi_common.c
++++ b/pfdi-demo/pfdi-common/src/pfdi_common.c
+@@ -12,0 +13 @@
++#include <stdlib.h>
+@@ -16,0 +18,58 @@
++static bool cpu_is_in_list(uint64_t cpu, const char *list)
++{
++	const char *cursor = list;
++
++	while (*cursor) {
++		char *end;
++		unsigned long first;
++		unsigned long last;
++
++		errno = 0;
++		first = strtoul(cursor, &end, 10);
++		if (cursor == end || errno != 0)
++			return false;
++
++		last = first;
++		if (*end == '-') {
++			cursor = end + 1;
++			errno = 0;
++			last = strtoul(cursor, &end, 10);
++			if (cursor == end || errno != 0)
++				return false;
++		}
++
++		if (cpu >= first && cpu <= last)
++			return true;
++
++		if (*end == ',') {
++			cursor = end + 1;
++			continue;
++		}
++
++		if (*end == '\n' || *end == '\0')
++			break;
++
++		return false;
++	}
++
++	return false;
++}
++
++static bool is_cpu_in_online_mask(uint64_t cpu)
++{
++	char cpus[256];
++	FILE *fp;
++
++	fp = fopen("/sys/devices/system/cpu/online", "r");
++	if (!fp)
++		return false;
++
++	if (!fgets(cpus, sizeof(cpus), fp)) {
++		fclose(fp);
++		return false;
++	}
++
++	fclose(fp);
++	return cpu_is_in_list(cpu, cpus);
++}
++
+@@ -45 +104,9 @@ bool is_cpu_online(uint64_t cpu)
+-	if (stat(path, &st) != 0)
++	if (stat(path, &st) != 0) {
++		/*
++		 * Some kernels omit per-CPU online files for always-online CPUs
++		 * or when CPU hotplug is not enabled. The global mask remains
++		 * available and describes the CPUs Linux currently considers online.
++		 */
++		return is_cpu_in_online_mask(cpu);
++	}
++	if (!S_ISREG(st.st_mode))
