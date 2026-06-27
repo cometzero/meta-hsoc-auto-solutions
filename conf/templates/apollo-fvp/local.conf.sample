@@ -5,7 +5,7 @@
 # Apollo FVP build configuration for a traditional TEMPLATECONF workflow.
 RD_ASPEN_VARIANT = "cfg2"
 MACHINE = "apollo-fvp"
-PC_CPUS_COUNT_DEFAULT = "4"
+PC_CPUS_COUNT_DEFAULT = "16"
 ARM_FVP_EULA_ACCEPT = "1"
 
 # Keep the traditional TEMPLATECONF build aligned with the kas baremetal
