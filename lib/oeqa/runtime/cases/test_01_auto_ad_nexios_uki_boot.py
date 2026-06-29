@@ -1,8 +1,11 @@
 # SPDX-License-Identifier: MIT
 
 import argparse
+from pathlib import Path
 import re
 import sys
+
+import pexpect
 
 from oeqa.core.decorator.depends import OETestDepends
 from oeqa.runtime.case import OERuntimeTestCase
@@ -49,8 +52,44 @@ class AutoAdNexiosUkiBootTest(OERuntimeTestCase):
         super().setUp()
         self.console = self.target.DEFAULT_CONSOLE
 
+    def _console_log_candidates(self):
+        if getattr(self.target, "bootlog", None):
+            yield Path(self.target.bootlog)
+
+        test_log_dir = self.td.get("TEST_LOG_DIR")
+        if test_log_dir:
+            log_dir = Path(test_log_dir)
+            yield log_dir / "default_log"
+            yield from sorted(
+                log_dir.glob("default_log.*"),
+                key=lambda path: path.stat().st_mtime if path.exists() else 0,
+                reverse=True,
+            )
+
+    def _read_console_log(self):
+        seen = set()
+        for path in self._console_log_candidates():
+            if path in seen:
+                continue
+            seen.add(path)
+            if not path.exists():
+                continue
+            return path.read_text(encoding="utf-8", errors="replace")
+        return ""
+
     def _expect_boot_marker(self, label, marker, timeout=120):
-        result = self.target.expect(self.console, re.escape(marker), timeout=timeout)
+        if marker in self._read_console_log():
+            return
+
+        try:
+            result = self.target.expect(
+                self.console, re.escape(marker), timeout=timeout
+            )
+        except pexpect.TIMEOUT:
+            if marker in self._read_console_log():
+                return
+            raise
+
         self.assertEqual(result, 0, f"Missing {label}: {marker}")
 
     def _run_ok(self, command, timeout=120):
@@ -95,10 +134,17 @@ class AutoAdNexiosUkiBootTest(OERuntimeTestCase):
         "AutoAdNexiosUkiBootTest.test_02_dm_verity_root",
     ])
     def test_03_writable_mounts(self):
-        mounts = self._run_ok("findmnt -nro TARGET,FSTYPE /rootrw /data /run")
-        self.assertIn("/rootrw ext4", mounts)
-        self.assertIn("/data ext4", mounts)
-        self.assertIn("/run tmpfs", mounts)
+        for path, fstype in (
+            ("/rootrw", "ext4"),
+            ("/data", "ext4"),
+            ("/run", "tmpfs"),
+        ):
+            mount = self._run_ok(f"findmnt -nro TARGET,FSTYPE --target {path}")
+            self.assertIn(
+                f"{path} {fstype}",
+                mount.splitlines(),
+                f"unexpected mount for {path}: {mount}",
+            )
 
         for path in (
             "/etc/auto-ad-nexios-oeqa-write-test",

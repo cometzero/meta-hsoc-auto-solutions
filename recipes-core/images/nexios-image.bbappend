@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 
 IMAGE_FEATURES:append:pn-nexios-image:auto-ad-nexios = " read-only-rootfs overlayfs-etc"
-IMAGE_INSTALL:append:pn-nexios-image:auto-ad-nexios = " auto-ad-nexios-storage"
+IMAGE_INSTALL:append:pn-nexios-image:auto-ad-nexios = " auto-ad-nexios-storage perf"
 IMAGE_FSTYPES:append:pn-nexios-image:auto-ad-nexios = "${@bb.utils.contains('APOLLO_DM_VERITY', '1', '', ' ext4', d)}"
 
 python __anonymous() {
@@ -22,6 +22,32 @@ CONVERSION_CMD:verity:append:pn-nexios-image:auto-ad-nexios = "; auto_ad_nexios_
 inherit_defer ${@'auto-ad-nexios-uki-ab' if d.getVar("DISTRO") == "auto-ad-nexios" else ''}
 
 ROOTFS_POSTPROCESS_COMMAND:append:pn-nexios-image:auto-ad-nexios = " auto_ad_nexios_check_overlay_storage; "
+
+HSOC_FVP_WRITABLE_FLASH_DIR = "${TMPDIR}/fvp-writable/${PN}/${IMAGE_LINK_NAME}"
+FVP_CONFIG[css.smb.rseil.rse_flashloader.fnameWrite] = "${HSOC_FVP_WRITABLE_FLASH_DIR}/rse-flash-image.img"
+FVP_CONFIG[ros.flash_loader.fnameWrite] = "${HSOC_FVP_WRITABLE_FLASH_DIR}/ap-flash-image.img"
+
+do_testimage[prefuncs] += "hsoc_prepare_fvp_writable_flash"
+do_testimage[cleandirs] += "${HSOC_FVP_WRITABLE_FLASH_DIR}"
+
+python hsoc_prepare_fvp_writable_flash() {
+    import os
+    import shutil
+
+    if d.getVar("MACHINE") != "apollo-fvp":
+        return
+
+    writable_dir = d.getVar("HSOC_FVP_WRITABLE_FLASH_DIR")
+    bb.utils.mkdirhier(writable_dir)
+    deploy_dir = d.getVar("DEPLOY_DIR_IMAGE")
+
+    for name in ("rse-flash-image.img", "ap-flash-image.img"):
+        src = os.path.join(deploy_dir, name)
+        dst = os.path.join(writable_dir, name)
+        if not os.path.exists(src):
+            bb.fatal("Missing Apollo FVP flash image for OEQA: %s" % src)
+        shutil.copy2(src, dst)
+}
 
 auto_ad_nexios_deploy_dm_verity_env() {
     local type="$1"
