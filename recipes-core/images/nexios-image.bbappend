@@ -3,12 +3,15 @@
 IMAGE_FEATURES:append:pn-nexios-image:auto-ad-nexios = " read-only-rootfs overlayfs-etc"
 IMAGE_INSTALL:append:pn-nexios-image:auto-ad-nexios = " auto-ad-nexios-storage perf"
 IMAGE_FSTYPES:append:pn-nexios-image:auto-ad-nexios = "${@bb.utils.contains('APOLLO_DM_VERITY', '1', '', ' ext4', d)}"
+EXTRA_IMAGEDEPENDS:append:pn-nexios-image:apollo-qvp = " qbox-apollo-qvp-native"
 
 python __anonymous() {
     if d.getVar("DISTRO") != "auto-ad-nexios":
         return
     if d.getVar("PN") != "nexios-image":
         return
+    if d.getVar("MACHINE") == "apollo-qvp":
+        d.appendVarFlag("do_image_complete", "depends", " qbox-apollo-qvp-native:do_deploy")
     if d.getVar("APOLLO_DM_VERITY") == "1":
         return
     if "wic" not in (d.getVar("IMAGE_FSTYPES") or "").split():
@@ -24,6 +27,7 @@ inherit_defer ${@'auto-ad-nexios-uki-ab' if d.getVar("DISTRO") == "auto-ad-nexio
 ROOTFS_POSTPROCESS_COMMAND:append:pn-nexios-image:auto-ad-nexios = " auto_ad_nexios_check_overlay_storage; "
 
 HSOC_FVP_WRITABLE_FLASH_DIR = "${TMPDIR}/fvp-writable/${PN}/${IMAGE_LINK_NAME}"
+HSOC_WRITABLE_FLASH_MACHINES = "apollo-fvp apollo-qvp"
 FVP_CONFIG[css.smb.rseil.rse_flashloader.fnameWrite] = "${HSOC_FVP_WRITABLE_FLASH_DIR}/rse-flash-image.img"
 FVP_CONFIG[ros.flash_loader.fnameWrite] = "${HSOC_FVP_WRITABLE_FLASH_DIR}/ap-flash-image.img"
 
@@ -34,7 +38,7 @@ python hsoc_prepare_fvp_writable_flash() {
     import os
     import shutil
 
-    if d.getVar("MACHINE") != "apollo-fvp":
+    if d.getVar("MACHINE") not in (d.getVar("HSOC_WRITABLE_FLASH_MACHINES") or "").split():
         return
 
     writable_dir = d.getVar("HSOC_FVP_WRITABLE_FLASH_DIR")
@@ -45,7 +49,7 @@ python hsoc_prepare_fvp_writable_flash() {
         src = os.path.join(deploy_dir, name)
         dst = os.path.join(writable_dir, name)
         if not os.path.exists(src):
-            bb.fatal("Missing Apollo FVP flash image for OEQA: %s" % src)
+            bb.fatal("Missing Apollo writable flash image for OEQA: %s" % src)
         shutil.copy2(src, dst)
 }
 
