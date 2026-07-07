@@ -3,15 +3,28 @@
 IMAGE_FEATURES:append:pn-nexios-image:auto-ad-nexios = " read-only-rootfs overlayfs-etc"
 IMAGE_INSTALL:append:pn-nexios-image:auto-ad-nexios = " auto-ad-nexios-storage perf"
 IMAGE_FSTYPES:append:pn-nexios-image:auto-ad-nexios = "${@bb.utils.contains('APOLLO_DM_VERITY', '1', '', ' ext4', d)}"
-EXTRA_IMAGEDEPENDS:append:pn-nexios-image:apollo-qvp = " qbox-apollo-qvp-native"
+IMAGE_CLASSES:append:pn-nexios-image:apollo-qvp = " qboxboot"
+
+QBOX_PROVIDER:pn-nexios-image:apollo-qvp = "qbox-apollo-qvp-native"
+QBOX_EXE:pn-nexios-image:apollo-qvp = "platforms-vp"
+QBOX_CONFIG:pn-nexios-image:apollo-qvp = "platforms/apollo/apollo-qvp.lua"
+QBOX_IMAGES[kernel] = "${KERNEL_IMAGETYPE}"
+QBOX_IMAGES[dtb] = "apollo-qvp.dtb"
+QBOX_IMAGES[rootfs_wic] = "${@d.getVar('IMAGE_LINK_NAME') + '.wic' if 'wic' in (d.getVar('IMAGE_FSTYPES') or '').split() else ''}"
+QBOX_IMAGES[rootfs_verity] = "${@d.getVar('IMAGE_LINK_NAME') + '.ext4.verity' if 'ext4.verity' in (d.getVar('IMAGE_FSTYPES') or '').split() else ''}"
+QBOX_IMAGES[rootfs_verity_env] = "${@d.getVar('IMAGE_LINK_NAME') + '.ext4.verity.env' if 'ext4.verity' in (d.getVar('IMAGE_FSTYPES') or '').split() else ''}"
+QBOX_IMAGES[ap_flash] = "ap-flash-image.img"
+QBOX_IMAGES[rse_flash] = "rse-flash-image.img"
+QBOX_IMAGES[rse_otp] = "rse-otp-image.img"
+QBOX_IMAGES[rse_rom] = "rse-rom-image.img"
+QBOX_IMAGES[si0_ramfw] = "si0_ramfw.bin"
+QBOX_IMAGES[si_cl1] = "zephyr-demos-cl1.bin"
 
 python __anonymous() {
     if d.getVar("DISTRO") != "auto-ad-nexios":
         return
     if d.getVar("PN") != "nexios-image":
         return
-    if d.getVar("MACHINE") == "apollo-qvp":
-        d.appendVarFlag("do_image_complete", "depends", " qbox-apollo-qvp-native:do_deploy")
     if d.getVar("APOLLO_DM_VERITY") == "1":
         return
     if "wic" not in (d.getVar("IMAGE_FSTYPES") or "").split():
