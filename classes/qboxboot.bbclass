@@ -26,7 +26,7 @@ EXTRA_IMAGEDEPENDS += "${QBOX_PROVIDER}"
 
 inherit image-artifact-names
 
-addtask do_write_qboxboot_conf before do_image_complete
+addtask do_write_qboxboot_conf after do_rootfs before do_image
 
 def qboxboot_enabled(d):
     return bool(d.getVar("QBOX_PROVIDER") or d.getVar("QBOX_EXE") or d.getVar("QBOX_CONFIG"))
