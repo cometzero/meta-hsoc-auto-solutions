@@ -67,8 +67,23 @@ python __anonymous() {
         d.appendVarFlag('do_image', 'depends', dep)
 }
 
-# Ensure dm-verity.env is updated also when rebuilding DM_VERITY_IMAGE
-do_image[nostamp] = "1"
+def auto_ad_nexios_verity_env_file_checksum(d):
+    verity_image = d.getVar("DM_VERITY_IMAGE")
+    verity_type = d.getVar("DM_VERITY_IMAGE_TYPE")
+    staging_dir = d.getVar("STAGING_VERITY_DIR")
+
+    if not (verity_image and verity_type and staging_dir):
+        return ""
+
+    return " %s/%s.%s.verity.env:False" % (
+        staging_dir,
+        verity_image,
+        verity_type,
+    )
+
+# Refresh dm-verity.env when the rootfs verity metadata changes without making
+# every initramfs image task a nostamp task.
+do_image[file-checksums] += "${@auto_ad_nexios_verity_env_file_checksum(d)}"
 
 IMAGE_FSTYPES = "${INITRAMFS_FSTYPES}"
 
