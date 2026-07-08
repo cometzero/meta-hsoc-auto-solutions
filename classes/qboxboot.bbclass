@@ -22,11 +22,9 @@ QBOX_CONFIG ?= ""
 QBOX_DATA ?= ""
 QBOX_ENV_PASSTHROUGH ?= ""
 
-EXTRA_IMAGEDEPENDS += "${QBOX_PROVIDER}"
-
 inherit image-artifact-names
 
-addtask do_write_qboxboot_conf after do_rootfs before do_image
+addtask do_write_qboxboot_conf after do_image before do_image_complete
 
 def qboxboot_enabled(d):
     return bool(d.getVar("QBOX_PROVIDER") or d.getVar("QBOX_EXE") or d.getVar("QBOX_CONFIG"))
