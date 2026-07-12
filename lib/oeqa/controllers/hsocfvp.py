@@ -23,6 +23,7 @@ LOGIN_PROMPT_NUDGE_MARKERS = (
     b"root@",
     b"systemd[1]:",
 )
+ROOT_SHELL_PROMPT_RE = r"root@[^:\r\n]+:~#"
 FVP_WRITABLE_FLASH_PAIRS = (
     (
         "css.smb.rseil.rse_flashloader.fname",
@@ -204,3 +205,28 @@ class HSOCOEFVPTarget(OEFVPTarget):
 
             self.logger.debug("Answering terminal status query on %s", terminal)
             terminal_session.send(TERMINAL_STATUS_RESPONSE)
+
+
+class HSOCSingleSessionFVPTarget(HSOCOEFVPTarget):
+    """Keep functional OEQA tests on the FVP instance that reached Linux."""
+
+    def transition(self, state, timeout=10 * 60):
+        current_state = self.__dict__.get("state", OEFVPTargetState.OFF)
+        if state == OEFVPTargetState.ON and current_state == OEFVPTargetState.LINUX:
+            self.logger.info("Keeping the running Linux FVP session")
+            return
+        if state == OEFVPTargetState.OFF:
+            self.__dict__.pop("_hsoc_linux_shell_ready", None)
+        result = super().transition(state, timeout)
+        if state == OEFVPTargetState.LINUX and not self.__dict__.get(
+            "_hsoc_linux_shell_ready", False
+        ):
+            self.sendline(self.DEFAULT_CONSOLE, "root")
+            self.expect(
+                self.DEFAULT_CONSOLE,
+                ROOT_SHELL_PROMPT_RE,
+                timeout=timeout,
+            )
+            self._hsoc_linux_shell_ready = True
+            self.logger.info("Linux root shell is ready on the running FVP session")
+        return result
