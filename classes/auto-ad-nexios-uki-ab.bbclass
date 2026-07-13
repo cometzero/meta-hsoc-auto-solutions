@@ -7,6 +7,7 @@
 inherit uki
 
 IMAGE_CLASSES:append = " uki"
+do_uki[file-checksums] += "${@'${DEPLOY_DIR_IMAGE}/${UKI_KERNEL_FILENAME}:%s' % os.path.exists('${DEPLOY_DIR_IMAGE}/${UKI_KERNEL_FILENAME}')}"
 
 python __anonymous() {
     if d.getVar("INITRAMFS_IMAGE"):
