@@ -53,6 +53,8 @@ DISTRO_FEATURES:remove:auto-ad-nexios = "overlayfs"
 
 AUTO_AD_NEXIOS_UKI_A = "nexios-bsp-initramfs-a.efi"
 AUTO_AD_NEXIOS_UKI_B = "nexios-bsp-initramfs-b.efi"
+AUTO_AD_NEXIOS_UKI_ESP_A = "auto-ad-nexios-a.efi"
+AUTO_AD_NEXIOS_UKI_ESP_B = "auto-ad-nexios-b.efi"
 AUTO_AD_NEXIOS_UKI_CMDLINE_A = "rdinit=/init rw console=${KERNEL_CONSOLE} ${BOOTLOADER_LINUX_APPEND}"
 AUTO_AD_NEXIOS_UKI_CMDLINE_B = "${AUTO_AD_NEXIOS_UKI_CMDLINE_A}"
 AUTO_AD_NEXIOS_UKI_INITRD = "${IMGDEPLOYDIR}/${IMAGE_LINK_NAME}.cpio.gz"

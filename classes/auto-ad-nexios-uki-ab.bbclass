@@ -41,6 +41,8 @@ UEFI_SECURE_BOOT:baremetal:auto-ad-nexios = "${@auto_ad_nexios_uefi_secure_boot(
 
 AUTO_AD_NEXIOS_UKI_A ?= "auto-ad-nexios-a.efi"
 AUTO_AD_NEXIOS_UKI_B ?= "auto-ad-nexios-b.efi"
+AUTO_AD_NEXIOS_UKI_ESP_A ?= "${AUTO_AD_NEXIOS_UKI_A}"
+AUTO_AD_NEXIOS_UKI_ESP_B ?= "${AUTO_AD_NEXIOS_UKI_B}"
 
 AUTO_AD_NEXIOS_UKI_CMDLINE_A ?= "rootwait root=PARTLABEL=rootro_a ro console=${KERNEL_CONSOLE} ${BOOTLOADER_LINUX_APPEND}"
 AUTO_AD_NEXIOS_UKI_CMDLINE_B ?= "rootwait root=PARTLABEL=rootro_b ro console=${KERNEL_CONSOLE} ${BOOTLOADER_LINUX_APPEND}"
@@ -55,8 +57,8 @@ DEPENDS:append = " ${@'sbsigntool-native' if oe.types.boolean(d.getVar('UEFI_SEC
 # fallback variable. Keep the existing ESP payload and add only the matching
 # slot UKI to each boot partition.
 AUTO_AD_NEXIOS_EFI_BOOT_FILES_BASE ?= "${IMAGE_EFI_BOOT_FILES}"
-IMAGE_EFI_BOOT_FILES_label-boot_a = "${AUTO_AD_NEXIOS_EFI_BOOT_FILES_BASE} ${AUTO_AD_NEXIOS_UKI_A};EFI/Linux/${AUTO_AD_NEXIOS_UKI_A}"
-IMAGE_EFI_BOOT_FILES_label-boot_b = "${AUTO_AD_NEXIOS_EFI_BOOT_FILES_BASE} ${AUTO_AD_NEXIOS_UKI_B};EFI/Linux/${AUTO_AD_NEXIOS_UKI_B}"
+IMAGE_EFI_BOOT_FILES_label-boot_a = "${AUTO_AD_NEXIOS_EFI_BOOT_FILES_BASE} ${AUTO_AD_NEXIOS_UKI_A};EFI/Linux/${AUTO_AD_NEXIOS_UKI_ESP_A}"
+IMAGE_EFI_BOOT_FILES_label-boot_b = "${AUTO_AD_NEXIOS_EFI_BOOT_FILES_BASE} ${AUTO_AD_NEXIOS_UKI_B};EFI/Linux/${AUTO_AD_NEXIOS_UKI_ESP_B}"
 WICVARS:append = " IMAGE_EFI_BOOT_FILES_label-boot_a IMAGE_EFI_BOOT_FILES_label-boot_b"
 
 do_image_wic[postfuncs] += "auto_ad_nexios_install_slot_ukis_into_wic"
@@ -71,7 +73,8 @@ auto_ad_nexios_wic_part_offset() {
 auto_ad_nexios_install_slot_uki() {
     local wic="$1"
     local part_name="$2"
-    local uki="$3"
+    local uki_source="$3"
+    local uki_destination="$4"
     local offset
 
     offset="$(auto_ad_nexios_wic_part_offset "$wic" "$part_name")"
@@ -79,13 +82,14 @@ auto_ad_nexios_install_slot_uki() {
         bbfatal "auto-ad-nexios: could not find ${part_name} in ${wic}"
     fi
 
-    if [ ! -f "${DEPLOY_DIR_IMAGE}/${uki}" ]; then
-        bbfatal "auto-ad-nexios: missing deployed UKI ${DEPLOY_DIR_IMAGE}/${uki}"
+    if [ ! -f "${DEPLOY_DIR_IMAGE}/${uki_source}" ]; then
+        bbfatal "auto-ad-nexios: missing deployed UKI ${DEPLOY_DIR_IMAGE}/${uki_source}"
     fi
 
     mmd -i "${wic}@@${offset}" ::/EFI/Linux 2>/dev/null || true
     mcopy -o -i "${wic}@@${offset}" \
-        "${DEPLOY_DIR_IMAGE}/${uki}" "::/EFI/Linux/${uki}"
+        "${DEPLOY_DIR_IMAGE}/${uki_source}" \
+        "::/EFI/Linux/${uki_destination}"
 }
 
 auto_ad_nexios_install_slot_ukis_into_wic() {
@@ -95,8 +99,12 @@ auto_ad_nexios_install_slot_ukis_into_wic() {
         bbfatal "auto-ad-nexios: missing generated WIC image ${wic}"
     fi
 
-    auto_ad_nexios_install_slot_uki "$wic" "boot_a" "${AUTO_AD_NEXIOS_UKI_A}"
-    auto_ad_nexios_install_slot_uki "$wic" "boot_b" "${AUTO_AD_NEXIOS_UKI_B}"
+    auto_ad_nexios_install_slot_uki \
+        "$wic" "boot_a" \
+        "${AUTO_AD_NEXIOS_UKI_A}" "${AUTO_AD_NEXIOS_UKI_ESP_A}"
+    auto_ad_nexios_install_slot_uki \
+        "$wic" "boot_b" \
+        "${AUTO_AD_NEXIOS_UKI_B}" "${AUTO_AD_NEXIOS_UKI_ESP_B}"
 }
 
 python __anonymous() {
