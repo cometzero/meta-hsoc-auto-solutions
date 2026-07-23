@@ -1,0 +1,115 @@
+#!/bin/sh
+
+export PATH=/sbin:/bin:/usr/sbin:/usr/bin
+
+failures=0
+
+pass() {
+    printf 'NEXIOS_BSP_TEST name=%s result=PASS%s\n' "$1" "${2:-}"
+}
+
+fail() {
+    printf 'NEXIOS_BSP_TEST name=%s result=FAIL%s\n' "$1" "${2:-}"
+    failures="$((failures + 1))"
+}
+
+require_path() {
+    name="$1"
+    path="$2"
+    if test -e "${path}"; then
+        pass "${name}"
+    else
+        fail "${name}" " path=${path}"
+    fi
+}
+
+require_glob() {
+    name="$1"
+    shift
+    if test -e "$1"; then
+        pass "${name}"
+    else
+        fail "${name}"
+    fi
+}
+
+require_match() {
+    name="$1"
+    pattern="$2"
+    path="$3"
+    if grep -q "${pattern}" "${path}"; then
+        pass "${name}"
+    else
+        fail "${name}"
+    fi
+}
+
+require_path proc /proc/cpuinfo
+require_path clocksource \
+    /sys/devices/system/clocksource/clocksource0/current_clocksource
+require_path dsu_cache /sys/devices/system/cpu/cpu0/cache/index3/size
+require_glob rtc /sys/class/rtc/rtc*
+require_glob watchdog /sys/class/watchdog/watchdog*
+require_path hwrng /dev/hwrng
+require_glob virtio_block /sys/block/vd*
+require_path wic_boot_a /sys/class/block/vda1
+require_path wic_boot_b /sys/class/block/vda2
+require_path wic_misc /sys/class/block/vda3
+if test ! -e /sys/class/block/vda4; then
+    pass wic_partition_count
+else
+    fail wic_partition_count
+fi
+require_glob remoteproc /sys/class/remoteproc/remoteproc*
+require_glob rpmsg_bus /sys/bus/rpmsg/devices/*
+require_glob pfdi_misc /dev/cpu/*/pfdi
+require_path pfdi_app /usr/bin/pfdi-sample-app
+require_path pfdi_config /etc/pfdi/pfdi_test_config_0.pack
+if pidof pfdi-sample-app >/dev/null; then
+    pass pfdi_service
+else
+    fail pfdi_service
+fi
+require_match pl011_console ttyAMA /proc/consoles
+require_match arch_timer arch_timer /proc/interrupts
+
+cmdline="$(cat /proc/cmdline)"
+if printf '%s\n' "${cmdline}" |
+    grep -Eq '(^|[[:space:]])rdinit=/init([[:space:]]|$)' &&
+    ! printf '%s\n' "${cmdline}" |
+        grep -Eq '(^|[[:space:]])root='; then
+    pass initramfs_cmdline
+else
+    fail initramfs_cmdline
+fi
+
+expected_cpus="$(cat /etc/nexios-bsp-cpus)"
+online_cpus="$(grep -c '^processor' /proc/cpuinfo)"
+if test "${online_cpus}" = "${expected_cpus}"; then
+    pass cpu_count " value=${online_cpus}"
+else
+    fail cpu_count " expected=${expected_cpus} value=${online_cpus}"
+fi
+
+network_device=""
+for device in /sys/class/net/*; do
+    device_name="${device##*/}"
+    case "${device_name}" in
+        lo|sit*|ip6tnl*|tunl*) continue ;;
+    esac
+    network_device="${device_name}"
+    break
+done
+if test -n "${network_device}"; then
+    pass network " device=${network_device}"
+else
+    fail network
+fi
+
+if perf stat -e arm_dsu_0/event=0x2a/ -- true >/tmp/perf.out 2>&1; then
+    pass dsu_pmu
+else
+    fail dsu_pmu
+fi
+
+test "${failures}" -eq 0

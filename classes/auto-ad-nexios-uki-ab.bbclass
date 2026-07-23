@@ -44,6 +44,7 @@ AUTO_AD_NEXIOS_UKI_B ?= "auto-ad-nexios-b.efi"
 
 AUTO_AD_NEXIOS_UKI_CMDLINE_A ?= "rootwait root=PARTLABEL=rootro_a ro console=${KERNEL_CONSOLE} ${BOOTLOADER_LINUX_APPEND}"
 AUTO_AD_NEXIOS_UKI_CMDLINE_B ?= "rootwait root=PARTLABEL=rootro_b ro console=${KERNEL_CONSOLE} ${BOOTLOADER_LINUX_APPEND}"
+AUTO_AD_NEXIOS_UKI_INITRD ?= "${@'${DEPLOY_DIR_IMAGE}/${INITRD_ARCHIVE}' if d.getVar('INITRD_ARCHIVE') else ''}"
 
 UKI_SB_KEY ?= "${@'${UEFI_SB_KEYS_DIR}/DB.key' if oe.types.boolean(d.getVar('UEFI_SECURE_BOOT') or '0') and d.getVar('UEFI_SB_KEYS_DIR') else ''}"
 UKI_SB_CERT ?= "${@'${UEFI_SB_KEYS_DIR}/DB.crt' if oe.types.boolean(d.getVar('UEFI_SECURE_BOOT') or '0') and d.getVar('UEFI_SB_KEYS_DIR') else ''}"
@@ -143,9 +144,8 @@ python do_uki() {
     require_file(stub, "UKI EFI stub")
     command = append_option(command, "--stub", stub)
 
-    initrd_archive = (d.getVar("INITRD_ARCHIVE") or "").strip()
-    if initrd_archive:
-        initrd = os.path.join(deploy_dir_image, initrd_archive)
+    initrd = (d.getVar("AUTO_AD_NEXIOS_UKI_INITRD") or "").strip()
+    if initrd:
         require_file(initrd, "UKI initramfs")
         command = append_joined_option(command, "--initrd", initrd)
 
