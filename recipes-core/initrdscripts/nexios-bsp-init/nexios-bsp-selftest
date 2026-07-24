@@ -52,10 +52,9 @@ require_glob rtc /sys/class/rtc/rtc*
 require_glob watchdog /sys/class/watchdog/watchdog*
 require_path hwrng /dev/hwrng
 require_glob virtio_block /sys/block/vd*
-require_path wic_boot_a /sys/class/block/vda1
-require_path wic_boot_b /sys/class/block/vda2
-require_path wic_misc /sys/class/block/vda3
-if test ! -e /sys/class/block/vda4; then
+require_path wic_boot /sys/class/block/vda1
+require_path wic_misc /sys/class/block/vda2
+if test ! -e /sys/class/block/vda3; then
     pass wic_partition_count
 else
     fail wic_partition_count

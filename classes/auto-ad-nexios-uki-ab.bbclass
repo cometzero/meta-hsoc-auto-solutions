@@ -43,6 +43,11 @@ AUTO_AD_NEXIOS_UKI_A ?= "auto-ad-nexios-a.efi"
 AUTO_AD_NEXIOS_UKI_B ?= "auto-ad-nexios-b.efi"
 AUTO_AD_NEXIOS_UKI_ESP_A ?= "${AUTO_AD_NEXIOS_UKI_A}"
 AUTO_AD_NEXIOS_UKI_ESP_B ?= "${AUTO_AD_NEXIOS_UKI_B}"
+AUTO_AD_NEXIOS_SLOT_DIR_A ?= "EFI/Linux/a-slot"
+AUTO_AD_NEXIOS_SLOT_DIR_B ?= "EFI/Linux/b-slot"
+AUTO_AD_NEXIOS_SLOT_METADATA_FILENAME ?= "metadata"
+AUTO_AD_NEXIOS_SLOT_METADATA_A ?= "${AUTO_AD_NEXIOS_UKI_A}.metadata"
+AUTO_AD_NEXIOS_SLOT_METADATA_B ?= "${AUTO_AD_NEXIOS_UKI_B}.metadata"
 
 AUTO_AD_NEXIOS_UKI_CMDLINE_A ?= "rootwait root=PARTLABEL=rootro_a ro console=${KERNEL_CONSOLE} ${BOOTLOADER_LINUX_APPEND}"
 AUTO_AD_NEXIOS_UKI_CMDLINE_B ?= "rootwait root=PARTLABEL=rootro_b ro console=${KERNEL_CONSOLE} ${BOOTLOADER_LINUX_APPEND}"
@@ -53,59 +58,12 @@ UKI_SB_CERT ?= "${@'${UEFI_SB_KEYS_DIR}/DB.crt' if oe.types.boolean(d.getVar('UE
 
 DEPENDS:append = " ${@'sbsigntool-native' if oe.types.boolean(d.getVar('UEFI_SECURE_BOOT') or '0') else ''}"
 
-# bootimg-efi uses label-specific IMAGE_EFI_BOOT_FILES variables before the
-# fallback variable. Keep the existing ESP payload and add only the matching
-# slot UKI to each boot partition.
-AUTO_AD_NEXIOS_EFI_BOOT_FILES_BASE ?= "${IMAGE_EFI_BOOT_FILES}"
-IMAGE_EFI_BOOT_FILES_label-boot_a = "${AUTO_AD_NEXIOS_EFI_BOOT_FILES_BASE} ${AUTO_AD_NEXIOS_UKI_A};EFI/Linux/${AUTO_AD_NEXIOS_UKI_ESP_A}"
-IMAGE_EFI_BOOT_FILES_label-boot_b = "${AUTO_AD_NEXIOS_EFI_BOOT_FILES_BASE} ${AUTO_AD_NEXIOS_UKI_B};EFI/Linux/${AUTO_AD_NEXIOS_UKI_ESP_B}"
-WICVARS:append = " IMAGE_EFI_BOOT_FILES_label-boot_a IMAGE_EFI_BOOT_FILES_label-boot_b"
-
-do_image_wic[postfuncs] += "auto_ad_nexios_install_slot_ukis_into_wic"
-
-auto_ad_nexios_wic_part_offset() {
-    local wic="$1"
-    local part_name="$2"
-
-    sgdisk -p "$wic" | awk -v name="$part_name" '$7 == name {print $2 * 512}'
-}
-
-auto_ad_nexios_install_slot_uki() {
-    local wic="$1"
-    local part_name="$2"
-    local uki_source="$3"
-    local uki_destination="$4"
-    local offset
-
-    offset="$(auto_ad_nexios_wic_part_offset "$wic" "$part_name")"
-    if [ -z "$offset" ]; then
-        bbfatal "auto-ad-nexios: could not find ${part_name} in ${wic}"
-    fi
-
-    if [ ! -f "${DEPLOY_DIR_IMAGE}/${uki_source}" ]; then
-        bbfatal "auto-ad-nexios: missing deployed UKI ${DEPLOY_DIR_IMAGE}/${uki_source}"
-    fi
-
-    mmd -i "${wic}@@${offset}" ::/EFI/Linux 2>/dev/null || true
-    mcopy -o -i "${wic}@@${offset}" \
-        "${DEPLOY_DIR_IMAGE}/${uki_source}" \
-        "::/EFI/Linux/${uki_destination}"
-}
-
-auto_ad_nexios_install_slot_ukis_into_wic() {
-    local wic="${IMGDEPLOYDIR}/${IMAGE_NAME}.wic"
-
-    if [ ! -f "$wic" ]; then
-        bbfatal "auto-ad-nexios: missing generated WIC image ${wic}"
-    fi
-
-    auto_ad_nexios_install_slot_uki \
-        "$wic" "boot_a" \
-        "${AUTO_AD_NEXIOS_UKI_A}" "${AUTO_AD_NEXIOS_UKI_ESP_A}"
-    auto_ad_nexios_install_slot_uki \
-        "$wic" "boot_b" \
-        "${AUTO_AD_NEXIOS_UKI_B}" "${AUTO_AD_NEXIOS_UKI_ESP_B}"
-}
+IMAGE_EFI_BOOT_FILES:append = " \
+    ${AUTO_AD_NEXIOS_UKI_A};${AUTO_AD_NEXIOS_SLOT_DIR_A}/${AUTO_AD_NEXIOS_UKI_ESP_A} \
+    ${AUTO_AD_NEXIOS_UKI_B};${AUTO_AD_NEXIOS_SLOT_DIR_B}/${AUTO_AD_NEXIOS_UKI_ESP_B} \
+    ${AUTO_AD_NEXIOS_SLOT_METADATA_A};${AUTO_AD_NEXIOS_SLOT_DIR_A}/${AUTO_AD_NEXIOS_SLOT_METADATA_FILENAME} \
+    ${AUTO_AD_NEXIOS_SLOT_METADATA_B};${AUTO_AD_NEXIOS_SLOT_DIR_B}/${AUTO_AD_NEXIOS_SLOT_METADATA_FILENAME} \
+"
 
 python __anonymous() {
     import oe.types
@@ -201,15 +159,27 @@ python do_uki() {
         command = append_joined_option(command, "--secureboot-certificate", cert)
 
     slots = (
-        ("A", d.getVar("AUTO_AD_NEXIOS_UKI_A"), d.getVar("AUTO_AD_NEXIOS_UKI_CMDLINE_A")),
-        ("B", d.getVar("AUTO_AD_NEXIOS_UKI_B"), d.getVar("AUTO_AD_NEXIOS_UKI_CMDLINE_B")),
+        (
+            "A",
+            d.getVar("AUTO_AD_NEXIOS_UKI_A"),
+            d.getVar("AUTO_AD_NEXIOS_UKI_CMDLINE_A"),
+            d.getVar("AUTO_AD_NEXIOS_SLOT_METADATA_A"),
+        ),
+        (
+            "B",
+            d.getVar("AUTO_AD_NEXIOS_UKI_B"),
+            d.getVar("AUTO_AD_NEXIOS_UKI_CMDLINE_B"),
+            d.getVar("AUTO_AD_NEXIOS_SLOT_METADATA_B"),
+        ),
     )
 
-    for slot, filename, cmdline in slots:
+    for slot, filename, cmdline, metadata_filename in slots:
         if not filename:
             bb.fatal("Auto AD Nexios slot %s UKI filename is not set" % slot)
         if not cmdline:
             bb.fatal("Auto AD Nexios slot %s UKI command line is not set" % slot)
+        if not metadata_filename:
+            bb.fatal("Auto AD Nexios slot %s metadata filename is not set" % slot)
         output = os.path.join(deploy_dir_image, filename)
         slot_command = append_joined_option(command, "--cmdline", cmdline)
         slot_command = append_joined_option(slot_command, "--output", output)
@@ -217,4 +187,12 @@ python do_uki() {
         bb.debug(2, "auto-ad-nexios UKI command: %s" % slot_command)
         out, err = bb.process.run(slot_command, shell=True)
         bb.debug(2, "%s\n%s" % (out, err))
+
+        metadata_output = os.path.join(deploy_dir_image, metadata_filename)
+        with open(metadata_output, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write("slot=%s\n" % slot)
+        bb.note(
+            "auto-ad-nexios: generated slot %s metadata: %s"
+            % (slot, metadata_output)
+        )
 }
