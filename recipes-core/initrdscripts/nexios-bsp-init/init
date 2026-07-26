@@ -17,8 +17,13 @@ grep -qw configfs /proc/filesystems &&
 mdev -s
 depmod -a
 
+machine="$(cat /etc/nexios-bsp-machine)"
 for module in virtio_rpmsg_bus arm_si_rproc rpmsg_net pfdi_misc; do
-    if modprobe "${module}" 2>/dev/null; then
+    set -- "${module}"
+    if test "${module}" = "pfdi_misc" && test "${machine}" = "apollo-qvp"; then
+        set -- "${module}" pfdi_wait_timeout_ms=1000
+    fi
+    if modprobe "$@" 2>/dev/null; then
         printf 'NEXIOS_BSP_MODULE name=%s result=PASS\n' "${module}"
     else
         printf 'NEXIOS_BSP_MODULE name=%s result=SKIP\n' "${module}"
@@ -46,7 +51,6 @@ if ! /usr/libexec/nexios-bsp/selftest; then
     exec setsid -c sh </dev/console >/dev/console 2>&1
 fi
 
-machine="$(cat /etc/nexios-bsp-machine)"
 printf 'NEXIOS_BSP_INITRAMFS_READY machine=%s\n' "${machine}"
 export PS1='nexios-bsp# '
 printf '%s\n' 'nexios-bsp#'
