@@ -47,7 +47,7 @@ def assert_boot_log(log_text, slot=DEFAULT_SLOT):
         raise AssertionError(f"missing auto-ad-nexios boot markers: {details}")
 
 
-class AutoAdNexiosUkiBootTest(OERuntimeTestCase):
+class ApolloUkiBootTest(OERuntimeTestCase):
     def setUp(self):
         super().setUp()
         self.console = self.target.DEFAULT_CONSOLE
@@ -97,14 +97,17 @@ class AutoAdNexiosUkiBootTest(OERuntimeTestCase):
         self.assertEqual(status, 0, f"{command} failed:\n{output}")
         return output
 
+    @OETestDepends(
+        ["test_00_linux_boot.LinuxBootTest.test_linux_boot"]
+    )
     def test_01_uboot_uki_boot_markers(self):
         for label, marker in expected_boot_markers():
             self._expect_boot_marker(label, marker)
 
     @OETestDepends([
-        "ssh.SSHTest.test_ssh",
-        "test_01_auto_ad_nexios_uki_boot."
-        "AutoAdNexiosUkiBootTest.test_01_uboot_uki_boot_markers",
+        "test_60_linux_connectivity.LinuxConnectivityTest.test_ssh",
+        "test_00_apollo_uki_boot."
+        "ApolloUkiBootTest.test_01_uboot_uki_boot_markers",
     ])
     def test_02_dm_verity_root(self):
         cmdline = self._run_ok("cat /proc/cmdline")
@@ -130,8 +133,8 @@ class AutoAdNexiosUkiBootTest(OERuntimeTestCase):
         )
 
     @OETestDepends([
-        "test_01_auto_ad_nexios_uki_boot."
-        "AutoAdNexiosUkiBootTest.test_02_dm_verity_root",
+        "test_00_apollo_uki_boot."
+        "ApolloUkiBootTest.test_02_dm_verity_root",
     ])
     def test_03_writable_mounts(self):
         for path, fstype in (
