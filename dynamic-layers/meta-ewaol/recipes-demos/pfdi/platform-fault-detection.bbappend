@@ -5,6 +5,7 @@ SRC_URI:append = " file://0001-pfdi-handle-missing-per-cpu-online-files.patch"
 PACKAGES =+ "pfdi-bsp-app"
 
 FILES:pfdi-bsp-app = " \
+    ${bindir}/pfdi-cli \
     ${bindir}/pfdi-sample-app \
     ${sysconfdir}/pfdi/*.pack \
 "
