@@ -3,6 +3,9 @@
 IMAGE_FEATURES:append:pn-nexios-image:auto-ad-nexios = " read-only-rootfs overlayfs-etc"
 IMAGE_INSTALL:append:pn-nexios-image:auto-ad-nexios = " auto-ad-nexios-storage perf"
 IMAGE_FSTYPES:append:pn-nexios-image:auto-ad-nexios = "${@bb.utils.contains('APOLLO_DM_VERITY', '1', '', ' ext4', d)}"
+INITRAMFS_IMAGE:auto-ad-nexios = "nexios-initramfs-image"
+INITRAMFS_FSTYPES:auto-ad-nexios = "cpio.gz"
+INITRD_ARCHIVE:auto-ad-nexios = "${INITRAMFS_IMAGE}-${MACHINE}.${INITRAMFS_FSTYPES}"
 
 require recipes-core/images/include/nexios-apollo-qboxboot.inc
 

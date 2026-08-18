@@ -85,6 +85,7 @@ def auto_ad_nexios_verity_env_file_checksum(d):
 # every initramfs image task a nostamp task.
 do_image[file-checksums] += "${@auto_ad_nexios_verity_env_file_checksum(d)}"
 
+INITRAMFS_FSTYPES = "cpio.gz"
 IMAGE_FSTYPES = "${INITRAMFS_FSTYPES}"
 
 deploy_verity_hash() {

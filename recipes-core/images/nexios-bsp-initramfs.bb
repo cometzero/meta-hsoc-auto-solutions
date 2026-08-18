@@ -4,6 +4,14 @@ SUMMARY = "Nexios BSP validation initramfs"
 DESCRIPTION = "BusyBox initramfs and boot-only disk for Apollo BSP validation."
 LICENSE = "MIT"
 
+APOLLO_DM_VERITY = "0"
+IMAGE_CLASSES:remove:auto-ad-nexios = "dm-verity-img"
+INITRAMFS_IMAGE:auto-ad-nexios = ""
+INITRD_ARCHIVE:auto-ad-nexios = ""
+DM_VERITY_IMAGE:auto-ad-nexios = ""
+DM_VERITY_IMAGE_TYPE:auto-ad-nexios = ""
+DISTRO_FEATURES:remove:auto-ad-nexios = "overlayfs"
+
 inherit core-image auto-ad-nexios-uki-ab
 
 require recipes-core/images/include/nexios-apollo-qboxboot.inc
@@ -43,13 +51,6 @@ IMAGE_LINGUAS = ""
 IMAGE_NAME_SUFFIX ?= ""
 IMAGE_FSTYPES = "cpio.gz wic"
 NO_RECOMMENDATIONS = "1"
-
-IMAGE_CLASSES:remove:auto-ad-nexios = "dm-verity-img"
-INITRAMFS_IMAGE:auto-ad-nexios = ""
-INITRD_ARCHIVE:auto-ad-nexios = ""
-DM_VERITY_IMAGE:auto-ad-nexios = ""
-DM_VERITY_IMAGE_TYPE:auto-ad-nexios = ""
-DISTRO_FEATURES:remove:auto-ad-nexios = "overlayfs"
 
 AUTO_AD_NEXIOS_UKI_A = "nexios-bsp-initramfs-a.efi"
 AUTO_AD_NEXIOS_UKI_B = "nexios-bsp-initramfs-b.efi"
