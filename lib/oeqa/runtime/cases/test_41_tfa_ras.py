@@ -20,6 +20,9 @@ from oeqa.runtime.case import OERuntimeTestCase
 from oeqa.utils.arm_auto_solutions_config import ArmAutoSolutionsConfig
 
 
+RAS_ESTATUS_CACHE_WINDOW_S = 10
+
+
 # -------------------------
 # Configuration containers
 # -------------------------
@@ -172,13 +175,14 @@ class RasDmesg:
     def _poll_cmd(self, needle_b64: str) -> str:
         return (
             f'PAT="$(echo {needle_b64} | base64 -d)"; '
-            'dmesg | grep -qF "$PAT" && echo SEEN || echo WAIT'
+            'dmesg | grep -qF "$PAT" '
+            "&& printf 'RAS_%s\\n' SEEN || printf 'RAS_%s\\n' WAIT"
         )
 
     def _expect_seen_wait_ps2(self, timeout: int) -> int:
         return self._t.target.expect(
             self._cfg.console,
-            [r"\bSEEN\b", r"\bWAIT\b", r"(?m)^\s*>\s*$"],
+            [r"\bRAS_SEEN\b", r"\bRAS_WAIT\b", r"(?m)^\s*>\s*$"],
             timeout=timeout,
         )
 
@@ -419,78 +423,46 @@ class RasInjectTests(OERuntimeTestCase):
         Each iteration must return to the Linux prompt.
         """
         self.h.prompt.to_linux_and_login_root()
-
-        self.target.expect(
-            self.h.cfg.console,
-            self.h.prompt.root_prompt_re(),
-            timeout=60,
+        self.h.dmesg.disable_kernel_log_ratelimit()
+        previous_id: int | None = None
+        repeat_settle_s = max(
+            self.h.cfg.timeouts.post_inject_settle_s,
+            RAS_ESTATUS_CACHE_WINDOW_S + 1,
         )
 
-        self.target.sendline(self.h.cfg.console, "prev=0; echo PREV_INIT")
-        self.target.expect(self.h.cfg.console, r"PREV_INIT", timeout=30)
-        self.target.expect(
-            self.h.cfg.console,
-            self.h.prompt.root_prompt_re(),
-            timeout=60,
-        )
-        clear_cmd = "dmesg -c >/dev/null 2>&1; echo DMESG_CLEARED"
-        for _ in range(10):
+        for iteration in range(1, 11):
+            self.h.dmesg.clear_dmesg()
+            self.h.inject.inject_error("CorrectableCpuError")
+            self.h.prompt.expect_root_prompt(timeout=60)
+            time.sleep(repeat_settle_s)
+            self.h.dmesg.poll_dmesg_has(
+                "event severity: corrected",
+                self.h.cfg.timeouts.post_inject_timeout,
+            )
 
-            self.target.sendline(self.h.cfg.console, clear_cmd)
             self.target.sendline(
                 self.h.cfg.console,
-                "ts-ras-inject CorrectableCpuError",
-            )
-
-            self.target.expect(
-                self.h.cfg.console,
-                r"Calling ras service to inject CorrectableCpuError",
-                timeout=60,
+                r"dmesg | sed -nE 's/.*\{([0-9]+)\}"
+                r"\[Hardware Error\]: event severity: corrected.*/"
+                r"RAS_CPER_ID=\1/p'",
             )
             self.target.expect(
                 self.h.cfg.console,
-                r"Call to ras service finished with status: Success",
-                timeout=60,
+                r"RAS_CPER_ID=([0-9]+)",
+                timeout=self.h.cfg.timeouts.post_inject_timeout,
             )
-            self.target.expect(
-                self.h.cfg.tfa_console,
-                r"CPU RAS: Interrupt Received",
-                timeout=60,
-            )
-
-            time.sleep(3)
-
-            check = (
-                r"DM=$(dmesg); "
-                r"ID=$(echo \"$DM\" | "
-                r"sed -nE 's/.*[{]([0-9]+)[}][[]Hardware Error[]]: "
-                r"event severity: corrected.*/\1/p' | "
-                r"tail -n 1); "
-                r"echo \"$DM\" | grep -qi 'processor context not corrupted'; "
-                r"C1=$?; "
-                r"echo \"$DM\" | grep -qi 'the error has been corrected'; "
-                r"C2=$?; "
-                r"echo \"$DM\" | grep -q 'Context info structure 0'; C3=$?; "
-                r"echo \"$DM\" | grep -q 'Context info structure 1'; C4=$?; "
-                r"C1=$([ $C1 -eq 0 ] && echo 1 || echo 0); "
-                r"C2=$([ $C2 -eq 0 ] && echo 1 || echo 0); "
-                r"C3=$([ $C3 -eq 0 ] && echo 1 || echo 0); "
-                r"C4=$([ $C4 -eq 0 ] && echo 1 || echo 0); "
-                r"if [ -z \"$ID\" ]; then echo FAIL_NO_ID; "
-                r"elif [ \"$prev\" -eq 0 ]; then prev=$ID; "
-                r"echo OK C=$C1$C2$C3$C4; "
-                r"elif [ \"$ID\" -eq $((prev+1)) ]; then "
-                r"prev=$ID; echo OK C=$C1$C2$C3$C4; "
-                r"else echo FAIL prev=$prev id=$ID; fi; "
-                r"dmesg -c >/dev/null 2>&1"
-            )
-
-            self.target.sendline(self.h.cfg.console, check)
-            self.target.expect(self.h.cfg.console, r"OK", timeout=60)
-            self.target.expect(
-                self.h.cfg.console,
-                self.h.prompt.root_prompt_re(),
-                timeout=60,
+            current_id = int(self.target.match(self.h.cfg.console).group(1))
+            self.h.prompt.expect_root_prompt(timeout=60)
+            if previous_id is not None:
+                self.assertEqual(
+                    current_id,
+                    previous_id + 1,
+                    f"iteration {iteration}: non-consecutive CPER event ID",
+                )
+            previous_id = current_id
+            self.h.dmesg.poll_markers(
+                "corrected",
+                self.h.cfg.timeouts.post_inject_timeout,
             )
 
     @OETestDepends(
