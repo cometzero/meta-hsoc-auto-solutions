@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+from threading import Lock
 import time
 
 from oeqa.controllers.fvp import OEFVPTarget, OEFVPTargetState
@@ -24,6 +25,8 @@ LOGIN_PROMPT_NUDGE_MARKERS = (
     b"systemd[1]:",
 )
 ROOT_SHELL_PROMPT_RE = r"root@[^:\r\n]+:~#"
+BSP_READY_RE = r"NEXIOS_BSP_INITRAMFS_READY machine=apollo-(?:fvp|qvp)"
+BSP_SHELL_PROMPT_RE = r"nexios-bsp# "
 FVP_WRITABLE_FLASH_PAIRS = (
     (
         "css.smb.rseil.rse_flashloader.fname",
@@ -33,6 +36,8 @@ FVP_WRITABLE_FLASH_PAIRS = (
 )
 FVP_WRITABLE_IMAGE_KEYS = (
     "css.smb.rseil.rse.lcm_nvm.raw_image",
+    "ros.virtio_block0.image_path",
+    "ros.virtio_block1.image_path",
 )
 
 
@@ -79,7 +84,9 @@ class HSOCOEFVPTarget(OEFVPTarget):
             read_path = self._fvpconf_path(read_image)
             write_path = self._fvpconf_path(write_image)
             if read_path == write_path:
-                continue
+                if writable_dir is None:
+                    writable_dir = read_path.parent / "hsoc-oeqa-writable"
+                write_path = writable_dir / read_path.name
 
             write_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(read_path, write_path)
@@ -230,3 +237,60 @@ class HSOCSingleSessionFVPTarget(HSOCOEFVPTarget):
             self._hsoc_linux_shell_ready = True
             self.logger.info("Linux root shell is ready on the running FVP session")
         return result
+
+
+class HSOCBSPFVPTarget(HSOCOEFVPTarget):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._hsoc_bsp_command_lock = Lock()
+        self._hsoc_bsp_command_index = 0
+
+    def transition(self, state, timeout=10 * 60):
+        current_state = self.__dict__.get("state", OEFVPTargetState.OFF)
+        if state == OEFVPTargetState.ON and current_state == OEFVPTargetState.LINUX:
+            self.logger.info("Keeping the running BSP FVP session")
+            return None
+        if state != OEFVPTargetState.LINUX:
+            return super().transition(state, timeout)
+        if current_state == OEFVPTargetState.LINUX:
+            return None
+        super().transition(OEFVPTargetState.ON, timeout)
+        self.expect(self.DEFAULT_CONSOLE, BSP_READY_RE, timeout=timeout)
+        self.expect(self.DEFAULT_CONSOLE, BSP_SHELL_PROMPT_RE, timeout=timeout)
+        self.state = OEFVPTargetState.LINUX
+        self.logger.info("BSP root shell is ready on the running FVP session")
+        return None
+
+    def run(self, cmd, timeout=None, ignore_status=True, raw=False):
+        del ignore_status, raw
+        command_timeout = self.timeout if timeout is None else timeout
+        with self._hsoc_bsp_command_lock:
+            self.transition(OEFVPTargetState.LINUX, timeout=command_timeout)
+            self._hsoc_bsp_command_index += 1
+            token = f"{self._hsoc_bsp_command_index:08x}"
+            begin = f"__OEQA_BSP_BEGIN_{token}__"
+            end = f"__OEQA_BSP_END_{token}__"
+            wrapped = (
+                f"printf '\\n{begin}\\n'; {{ {cmd}; }}; rc=$?; "
+                f"printf '\\n{end}=%s\\n' \"$rc\""
+            )
+            self.sendline(self.DEFAULT_CONSOLE, wrapped)
+            self.expect(self.DEFAULT_CONSOLE, re.escape(begin), timeout=command_timeout)
+            self.expect(
+                self.DEFAULT_CONSOLE,
+                re.compile(rf"{re.escape(end)}=(\d+)"),
+                timeout=command_timeout,
+            )
+            output = self.before(self.DEFAULT_CONSOLE)
+            match = self.match(self.DEFAULT_CONSOLE)
+            self.expect(
+                self.DEFAULT_CONSOLE,
+                BSP_SHELL_PROMPT_RE,
+                timeout=command_timeout,
+            )
+        if isinstance(output, bytes):
+            output = output.decode("utf-8", errors="replace")
+        raw_status = match.group(1)
+        if isinstance(raw_status, bytes):
+            raw_status = raw_status.decode("ascii")
+        return int(raw_status), output.strip("\r\n")
