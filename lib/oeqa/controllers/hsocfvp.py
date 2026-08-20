@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 import re
-import shutil
 from threading import Lock
 import time
 
 from oeqa.controllers.fvp import OEFVPTarget, OEFVPTargetState
+from oeqa.controllers.hsocfvp_config import (
+    RuntimeConfigRequest,
+    prepare_runtime_config,
+)
 import pexpect
 
 
@@ -27,20 +29,6 @@ LOGIN_PROMPT_NUDGE_MARKERS = (
 ROOT_SHELL_PROMPT_RE = r"root@[^:\r\n]+:~#"
 BSP_READY_RE = r"NEXIOS_BSP_INITRAMFS_READY machine=apollo-(?:fvp|qvp)"
 BSP_SHELL_PROMPT_RE = r"nexios-bsp# "
-FVP_WRITABLE_FLASH_PAIRS = (
-    (
-        "css.smb.rseil.rse_flashloader.fname",
-        "css.smb.rseil.rse_flashloader.fnameWrite",
-    ),
-    ("ros.flash_loader.fname", "ros.flash_loader.fnameWrite"),
-)
-FVP_WRITABLE_IMAGE_KEYS = (
-    "css.smb.rseil.rse.lcm_nvm.raw_image",
-    "ros.virtio_block0.image_path",
-    "ros.virtio_block1.image_path",
-)
-
-
 def _is_login_prompt_pattern(pattern) -> bool:
     text = getattr(pattern, "pattern", pattern)
     if isinstance(text, bytes):
@@ -69,70 +57,16 @@ class HSOCOEFVPTarget(OEFVPTarget):
     def _reset_writable_flash(self) -> None:
         source_fvpconf = self.__dict__.get("_hsoc_source_fvpconf", self.fvpconf)
         self._hsoc_source_fvpconf = source_fvpconf
-        with open(source_fvpconf, encoding="utf-8") as stream:
-            config = json.load(stream)
-        parameters = config.get("parameters", {})
-        runtime_fvpconf = None
-        writable_dir = None
-
-        for read_key, write_key in FVP_WRITABLE_FLASH_PAIRS:
-            read_image = parameters.get(read_key)
-            write_image = parameters.get(write_key)
-            if not read_image or not write_image:
-                continue
-
-            read_path = self._fvpconf_path(read_image)
-            write_path = self._fvpconf_path(write_image)
-            if read_path == write_path:
-                if writable_dir is None:
-                    writable_dir = read_path.parent / "hsoc-oeqa-writable"
-                write_path = writable_dir / read_path.name
-
-            write_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(read_path, write_path)
-            parameters[write_key] = str(write_path)
-            writable_dir = write_path.parent
-            self.logger.debug(
-                "Reset writable FVP flash %s from %s",
-                write_path,
-                read_path,
+        bootlog = self.bootlog
+        if bootlog is None:
+            raise ValueError("FVP runtime boot log path is required")
+        self.fvpconf = prepare_runtime_config(
+            RuntimeConfigRequest(
+                source=source_fvpconf,
+                bootlog=Path(bootlog),
+                logger=self.logger,
             )
-
-        for key in FVP_WRITABLE_IMAGE_KEYS:
-            image = parameters.get(key)
-            if not image:
-                continue
-
-            read_path = self._fvpconf_path(image)
-            if writable_dir is None:
-                writable_dir = read_path.parent / "hsoc-oeqa-writable"
-            write_path = writable_dir / read_path.name
-            write_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(read_path, write_path)
-            parameters[key] = str(write_path)
-            self.logger.debug(
-                "Reset writable FVP image %s from %s",
-                write_path,
-                read_path,
-            )
-
-        if writable_dir is not None:
-            runtime_fvpconf = writable_dir / (
-                f"{source_fvpconf.stem}.hsoc-oeqa.fvpconf"
-            )
-
-        if runtime_fvpconf is not None:
-            runtime_fvpconf.write_text(
-                json.dumps(config),
-                encoding="utf-8",
-            )
-            self.fvpconf = runtime_fvpconf
-
-    def _fvpconf_path(self, value: str) -> Path:
-        path = Path(value)
-        if path.is_absolute():
-            return path
-        return self.fvpconf.parent / path
+        )
 
     def expect(self, terminal, patterns, *args, **kwargs):
         terminal_session = self.terminals[terminal]
