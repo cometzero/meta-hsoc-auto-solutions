@@ -29,6 +29,8 @@ LOGIN_PROMPT_NUDGE_MARKERS = (
 ROOT_SHELL_PROMPT_RE = r"root@[^:\r\n]+:~#"
 BSP_READY_RE = r"NEXIOS_BSP_INITRAMFS_READY machine=apollo-(?:fvp|qvp)"
 BSP_SHELL_PROMPT_RE = r"nexios-bsp# "
+
+
 def _is_login_prompt_pattern(pattern) -> bool:
     text = getattr(pattern, "pattern", pattern)
     if isinstance(text, bytes):
@@ -43,6 +45,33 @@ def _should_nudge_login_prompt(terminal_session) -> bool:
     if isinstance(before, str):
         before = before.encode()
     return any(marker in before for marker in LOGIN_PROMPT_NUDGE_MARKERS)
+
+
+def _run_serial_command(target, command, timeout, begin, end, prompt):
+    if not command or any(marker in command for marker in ("\0", "\r", "\n")):
+        raise ValueError("FVP serial command must be a non-empty single-line string")
+    if timeout <= 0:
+        raise ValueError("FVP serial command timeout must be positive")
+    wrapped = (
+        f"printf '\\n{begin}\\n'; {{ {command}; }}; rc=$?; "
+        f"printf '\\n{end}=%s\\n' \"$rc\""
+    )
+    target.sendline(target.DEFAULT_CONSOLE, wrapped)
+    target.expect(target.DEFAULT_CONSOLE, re.escape(begin), timeout=timeout)
+    target.expect(
+        target.DEFAULT_CONSOLE,
+        re.compile(rf"{re.escape(end)}=(\d+)"),
+        timeout=timeout,
+    )
+    output = target.before(target.DEFAULT_CONSOLE)
+    match = target.match(target.DEFAULT_CONSOLE)
+    target.expect(target.DEFAULT_CONSOLE, prompt, timeout=timeout)
+    if isinstance(output, bytes):
+        output = output.decode("utf-8", errors="replace")
+    raw_status = match.group(1)
+    if isinstance(raw_status, bytes):
+        raw_status = raw_status.decode("ascii")
+    return int(raw_status), output.strip("\r\n")
 
 
 class HSOCOEFVPTarget(OEFVPTarget):
@@ -151,6 +180,11 @@ class HSOCOEFVPTarget(OEFVPTarget):
 class HSOCSingleSessionFVPTarget(HSOCOEFVPTarget):
     """Keep functional OEQA tests on the FVP instance that reached Linux."""
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._hsoc_serial_command_lock = Lock()
+        self._hsoc_serial_command_index = 0
+
     def transition(self, state, timeout=10 * 60):
         current_state = self.__dict__.get("state", OEFVPTargetState.OFF)
         if state == OEFVPTargetState.ON and current_state == OEFVPTargetState.LINUX:
@@ -171,6 +205,21 @@ class HSOCSingleSessionFVPTarget(HSOCOEFVPTarget):
             self._hsoc_linux_shell_ready = True
             self.logger.info("Linux root shell is ready on the running FVP session")
         return result
+
+    def run_serial(self, command, timeout=None):
+        command_timeout = self.timeout if timeout is None else timeout
+        with self._hsoc_serial_command_lock:
+            self.transition(OEFVPTargetState.LINUX, timeout=command_timeout)
+            self._hsoc_serial_command_index += 1
+            token = f"{self._hsoc_serial_command_index:08x}"
+            return _run_serial_command(
+                self,
+                command,
+                command_timeout,
+                f"__OEQA_PRODUCT_BEGIN_{token}__",
+                f"__OEQA_PRODUCT_END_{token}__",
+                ROOT_SHELL_PROMPT_RE,
+            )
 
 
 class HSOCBSPFVPTarget(HSOCOEFVPTarget):
@@ -202,29 +251,11 @@ class HSOCBSPFVPTarget(HSOCOEFVPTarget):
             self.transition(OEFVPTargetState.LINUX, timeout=command_timeout)
             self._hsoc_bsp_command_index += 1
             token = f"{self._hsoc_bsp_command_index:08x}"
-            begin = f"__OEQA_BSP_BEGIN_{token}__"
-            end = f"__OEQA_BSP_END_{token}__"
-            wrapped = (
-                f"printf '\\n{begin}\\n'; {{ {cmd}; }}; rc=$?; "
-                f"printf '\\n{end}=%s\\n' \"$rc\""
-            )
-            self.sendline(self.DEFAULT_CONSOLE, wrapped)
-            self.expect(self.DEFAULT_CONSOLE, re.escape(begin), timeout=command_timeout)
-            self.expect(
-                self.DEFAULT_CONSOLE,
-                re.compile(rf"{re.escape(end)}=(\d+)"),
-                timeout=command_timeout,
-            )
-            output = self.before(self.DEFAULT_CONSOLE)
-            match = self.match(self.DEFAULT_CONSOLE)
-            self.expect(
-                self.DEFAULT_CONSOLE,
+            return _run_serial_command(
+                self,
+                cmd,
+                command_timeout,
+                f"__OEQA_BSP_BEGIN_{token}__",
+                f"__OEQA_BSP_END_{token}__",
                 BSP_SHELL_PROMPT_RE,
-                timeout=command_timeout,
             )
-        if isinstance(output, bytes):
-            output = output.decode("utf-8", errors="replace")
-        raw_status = match.group(1)
-        if isinstance(raw_status, bytes):
-            raw_status = raw_status.decode("ascii")
-        return int(raw_status), output.strip("\r\n")
