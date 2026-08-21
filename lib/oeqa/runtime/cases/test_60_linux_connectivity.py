@@ -33,8 +33,10 @@ class LinuxConnectivityTest(OERuntimeTestCase):
             "localhost",
             "::1",
         ):
-            print("runtime/ping: localhost detected, not pinging")
-            return
+            self.fail(
+                "runtime/ping: localhost target is not valid for "
+                "platform device validation"
+            )
 
         try:
             while count < 5:

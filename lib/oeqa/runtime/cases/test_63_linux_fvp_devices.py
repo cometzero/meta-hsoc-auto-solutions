@@ -142,7 +142,10 @@ class LinuxFVPDevicesTest(OERuntimeTestCase):
             self.assertFalse(self.disable_cpu(self.num_cpus - 1))
         finally:
             for cpu_num in range(self.num_cpus):
-                self.enable_cpu(cpu_num)
+                self.assertTrue(
+                    self.enable_cpu(cpu_num),
+                    msg=f"Failed to restore CPU {cpu_num} online",
+                )
 
     @OETestDepends(
         [
