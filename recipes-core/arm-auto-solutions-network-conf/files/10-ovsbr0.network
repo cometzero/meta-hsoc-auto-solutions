@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: MIT
+
+[Match]
+Name=ovsbr0
+
+[Network]
+DHCP=ipv4
+ConfigureWithoutCarrier=yes
