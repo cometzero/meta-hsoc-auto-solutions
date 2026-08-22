@@ -5,8 +5,9 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
 from typing import Final, Protocol, TypeAlias
+
+from oeqa.controllers.hsocfvp_copy import copy_runtime_file
 
 
 type JsonValue = None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
@@ -107,7 +108,7 @@ def prepare_runtime_config(request: RuntimeConfigRequest) -> Path:
             writable_dir = writable_dir or request.source.parent / "hsoc-oeqa-writable"
             write_path = writable_dir / read_path.name
         write_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(read_path, write_path)
+        copy_runtime_file(read_path, write_path)
         parameters[write_key] = str(write_path)
         writable_dir = write_path.parent
         request.logger.debug("Reset writable FVP flash %s from %s", write_path, read_path)
@@ -120,7 +121,7 @@ def prepare_runtime_config(request: RuntimeConfigRequest) -> Path:
         writable_dir = writable_dir or request.source.parent / "hsoc-oeqa-writable"
         write_path = writable_dir / read_path.name
         write_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(read_path, write_path)
+        copy_runtime_file(read_path, write_path)
         parameters[key] = str(write_path)
         request.logger.debug("Reset writable FVP image %s from %s", write_path, read_path)
 
