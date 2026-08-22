@@ -12,6 +12,11 @@ from oeqa.controllers.hsocfvp_config import (
     RuntimeConfigRequest,
     prepare_runtime_config,
 )
+from oeqa.controllers.hsocfvp_serial import (
+    FVPSerialBootError,
+    run_serial_command,
+    serial_console_tail,
+)
 import pexpect
 
 
@@ -45,33 +50,6 @@ def _should_nudge_login_prompt(terminal_session) -> bool:
     if isinstance(before, str):
         before = before.encode()
     return any(marker in before for marker in LOGIN_PROMPT_NUDGE_MARKERS)
-
-
-def _run_serial_command(target, command, timeout, begin, end, prompt):
-    if not command or any(marker in command for marker in ("\0", "\r", "\n")):
-        raise ValueError("FVP serial command must be a non-empty single-line string")
-    if timeout <= 0:
-        raise ValueError("FVP serial command timeout must be positive")
-    wrapped = (
-        f"printf '\\n{begin}\\n'; {{ {command}; }}; rc=$?; "
-        f"printf '\\n{end}=%s\\n' \"$rc\""
-    )
-    target.sendline(target.DEFAULT_CONSOLE, wrapped)
-    target.expect(target.DEFAULT_CONSOLE, re.escape(begin), timeout=timeout)
-    target.expect(
-        target.DEFAULT_CONSOLE,
-        re.compile(rf"{re.escape(end)}=(\d+)"),
-        timeout=timeout,
-    )
-    output = target.before(target.DEFAULT_CONSOLE)
-    match = target.match(target.DEFAULT_CONSOLE)
-    target.expect(target.DEFAULT_CONSOLE, prompt, timeout=timeout)
-    if isinstance(output, bytes):
-        output = output.decode("utf-8", errors="replace")
-    raw_status = match.group(1)
-    if isinstance(raw_status, bytes):
-        raw_status = raw_status.decode("ascii")
-    return int(raw_status), output.strip("\r\n")
 
 
 class HSOCOEFVPTarget(OEFVPTarget):
@@ -206,13 +184,31 @@ class HSOCSingleSessionFVPTarget(HSOCOEFVPTarget):
             self.logger.info("Linux root shell is ready on the running FVP session")
         return result
 
-    def run_serial(self, command, timeout=None):
+    def run_serial(self, command, timeout=None, boot_timeout=None):
         command_timeout = self.timeout if timeout is None else timeout
         with self._hsoc_serial_command_lock:
-            self.transition(OEFVPTargetState.LINUX, timeout=command_timeout)
+            transition_timeout = (
+                command_timeout if boot_timeout is None else boot_timeout
+            )
+            transition_start = time.monotonic()
+            try:
+                self.transition(OEFVPTargetState.LINUX, timeout=transition_timeout)
+            except (RuntimeError, pexpect.TIMEOUT, pexpect.EOF) as error:
+                raise FVPSerialBootError(
+                    str(error),
+                    serial_console_tail(self),
+                ) from error
+            if boot_timeout is not None:
+                remaining = boot_timeout - (time.monotonic() - transition_start)
+                if remaining <= 0:
+                    raise FVPSerialBootError(
+                        "Linux boot exhausted the serial readiness deadline",
+                        serial_console_tail(self),
+                    )
+                command_timeout = min(command_timeout, remaining)
             self._hsoc_serial_command_index += 1
             token = f"{self._hsoc_serial_command_index:08x}"
-            return _run_serial_command(
+            return run_serial_command(
                 self,
                 command,
                 command_timeout,
@@ -251,7 +247,7 @@ class HSOCBSPFVPTarget(HSOCOEFVPTarget):
             self.transition(OEFVPTargetState.LINUX, timeout=command_timeout)
             self._hsoc_bsp_command_index += 1
             token = f"{self._hsoc_bsp_command_index:08x}"
-            return _run_serial_command(
+            return run_serial_command(
                 self,
                 cmd,
                 command_timeout,

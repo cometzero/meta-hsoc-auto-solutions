@@ -15,6 +15,7 @@ from typing import Protocol
 from oeqa.core.decorator.depends import OETestDepends
 from oeqa.core.decorator.oetimeout import OETimeout
 from oeqa.core.exception import OEQATimeoutError
+from oeqa.controllers.hsocfvp import FVPSerialBootError
 from oeqa.runtime.case import OERuntimeTestCase
 from oeqa.runtime.decorator.package import OEHasPackage
 import pexpect
@@ -35,7 +36,12 @@ class ConnectivityTarget(Protocol):
     ip: str
     server_ip: str
 
-    def run_serial(self, command: str, timeout: int) -> tuple[int, str]: ...
+    def run_serial(
+        self,
+        command: str,
+        timeout: int,
+        boot_timeout: int | None = None,
+    ) -> tuple[int, str]: ...
 
     def run(self, command: str, timeout: int) -> tuple[int, str]: ...
 
@@ -75,7 +81,7 @@ class LinuxConnectivityTest(OERuntimeTestCase):
                     timeout=SERIAL_COMMAND_TIMEOUT_SECONDS,
                 )
                 diagnostics.append(f"$ {command}\nstatus={status}\n{output}")
-            except (pexpect.TIMEOUT, pexpect.EOF) as error:
+            except (pexpect.TIMEOUT, pexpect.EOF, FVPSerialBootError) as error:
                 diagnostics.append(
                     f"$ {command}\nserial-error={type(error).__name__}: {error}"
                 )
@@ -100,8 +106,20 @@ class LinuxConnectivityTest(OERuntimeTestCase):
                 last_status, last_output = self.target.run_serial(
                     command,
                     timeout=command_timeout,
+                    boot_timeout=remaining,
                 )
-            except (pexpect.TIMEOUT, pexpect.EOF) as error:
+            except FVPSerialBootError as error:
+                self.fail(
+                    "Guest Linux boot failed before network readiness; "
+                    f"network diagnostics unavailable before shell login:\n{error}"
+                )
+            except pexpect.EOF as error:
+                diagnostics = self._serial_diagnostics()
+                self.fail(
+                    "Guest serial console reached EOF before network readiness; "
+                    f"network diagnostics follow:\n{error}\n{diagnostics}"
+                )
+            except pexpect.TIMEOUT as error:
                 last_status = None
                 last_output = f"{type(error).__name__}: {error}"
             if last_status == 0:
