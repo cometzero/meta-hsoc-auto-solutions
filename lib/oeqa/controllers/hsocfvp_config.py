@@ -14,13 +14,7 @@ type JsonValue = None | bool | int | float | str | list[JsonValue] | dict[str, J
 FvpConfig: TypeAlias = tuple[tuple[str, str], ...]
 PROFILE_ENV: Final = "APOLLO_VALIDATION_FVP_CONFIG"
 SI_CL1_UART: Final = "css.smb.si.cluster1_pl011_uart.uart_enable"
-FVP_USER_NETWORKING: Final = "ros.virtio_net.hostbridge.userNetworking"
-FVP_INTERFACE_NAME: Final = "ros.virtio_net.hostbridge.interfaceName"
-APPROVED_FVP_CONFIG: Final = {
-    SI_CL1_UART: "1",
-    FVP_USER_NETWORKING: "0",
-    FVP_INTERFACE_NAME: "apollo-fvp-tap0",
-}
+APPROVED_FVP_CONFIG: Final = {SI_CL1_UART: "1"}
 WRITABLE_FLASH_PAIRS: Final = (
     (
         "css.smb.rseil.rse_flashloader.fname",
