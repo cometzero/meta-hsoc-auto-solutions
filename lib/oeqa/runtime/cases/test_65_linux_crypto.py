@@ -5,18 +5,20 @@
 # SPDX-License-Identifier: MIT
 
 import re
-import time
+import shlex
 from typing import Dict
 
 from oeqa.core.decorator.depends import OETestDepends
 from oeqa.runtime.case import OERuntimeTestCase
 from oeqa.utils.arm_auto_solutions_config import ArmAutoSolutionsConfig
+from oeqa.utils.apollo_crypto_validation import validate_crypto_samples
 from oeqa.utils.linux_terminal_utils import LinuxTermUtils
 
 
 class LinuxCryptoExtensionTest(OERuntimeTestCase):
     DEFAULT_TIMEOUT = 600
     WORK_DIR = "/tmp/apollo-oeqa-crypto"
+    SAMPLE_COUNT = 3
 
     @classmethod
     def setUpClass(cls):
@@ -30,7 +32,10 @@ class LinuxCryptoExtensionTest(OERuntimeTestCase):
     def run_ok(
         self, cmd: str, timeout: int = DEFAULT_TIMEOUT, msg: str = None
     ) -> str:
-        status, output = self.lt_utils.run(cmd, timeout)
+        command = "sh -c " + shlex.quote(
+            f"{cmd}; status=$?; cd /; exit $status"
+        )
+        status, output = self.lt_utils.run(command, timeout)
         self.assertEqual(
             status,
             0,
@@ -55,31 +60,35 @@ class LinuxCryptoExtensionTest(OERuntimeTestCase):
 
     def _start_ssl_server(self):
         server_cmd = (
-            f"sh -c 'cd {self.WORK_DIR} && (while true; "
-            "do dd if=/dev/urandom bs=1M count=10 2>/dev/null | "
-            "openssl s_server -cert server-cert.pem "
-            "-key server-key.pem -accept 4433 "
-            "-quiet -naccept 1; done) &'"
+            f"cd {self.WORK_DIR} || exit; command -v setsid >/dev/null || exit; "
+            "setsid sh -c 'while true; do dd if=/dev/urandom bs=1M "
+            "count=10 2>/dev/null | openssl s_server "
+            "-cert server-cert.pem -key server-key.pem -accept 4433 "
+            "-quiet -naccept 1; done' > server.log 2>&1 & "
+            "server_pid=$!; echo $server_pid > server.pid; "
+            "awk '{print $22}' /proc/$(cat server.pid)/stat > server.start && "
+            "for try in $(seq 1 20); do "
+            "grep -qi ':1151' /proc/net/tcp /proc/net/tcp6 && exit 0; "
+            "sleep 1; done; exit 1"
         )
         self.run_ok(server_cmd, msg="Failed to start SSL server")
-        time.sleep(2)
 
     def _cleanup_server(self):
-        try:
-            self.run_ok(
-                "fg",
-                timeout=5,
-                msg="Failed to bring server to foreground",
-            )
-        except AssertionError:
-            try:
-                self.run_ok(
-                    "pkill -f 's_server'",
-                    timeout=10,
-                    msg="Failed to kill server processes",
-                )
-            except AssertionError:
-                self.fail("Failed to cleanup server processes")
+        identity_cmd = (
+            f"test -s {self.WORK_DIR}/server.pid && "
+            f"test -s {self.WORK_DIR}/server.start && "
+            f"pid=$(cat {self.WORK_DIR}/server.pid) && "
+            f"test \"$(awk '{{print $22}}' /proc/$pid/stat)\" = "
+            f"\"$(cat {self.WORK_DIR}/server.start)\""
+        )
+        self.run_ok(identity_cmd, timeout=20, msg="SSL server identity changed")
+        stop_cmd = (
+            f"pid=$(cat {self.WORK_DIR}/server.pid) && "
+            "kill -TERM -$pid && "
+            "for try in $(seq 1 20); do "
+            "kill -0 $pid 2>/dev/null || exit 0; sleep 1; done; exit 1"
+        )
+        self.run_ok(stop_cmd, timeout=30, msg="Failed to stop SSL server")
 
     def _extract_time_from_output(
         self, output: str
@@ -141,18 +150,22 @@ class LinuxCryptoExtensionTest(OERuntimeTestCase):
         )
 
     def _cleanup_files(self):
-        cleanup_cmds = [
-            f"rm -f {self.WORK_DIR}/server-key.pem",
-            f"rm -f {self.WORK_DIR}/server-cert.pem",
-            f"rmdir {self.WORK_DIR}",
-        ]
-        for cmd in cleanup_cmds:
-            try:
-                self.run_ok(
-                    cmd, timeout=10, msg=f"Failed to cleanup: {cmd}"
-                )
-            except AssertionError:
-                self.fail(f"Failed to cleanup: {cmd}")
+        self.run_ok(
+            f"rm -rf {self.WORK_DIR} && test ! -e {self.WORK_DIR}",
+            timeout=20,
+            msg="Failed to remove crypto test files",
+        )
+
+    def _sample_downloads(self, enabled: bool):
+        download = (
+            self._download_with_crypto_extension
+            if enabled
+            else self._download_without_crypto_extension
+        )
+        return tuple(
+            self._extract_time_from_output(download())
+            for _ in range(self.SAMPLE_COUNT)
+        )
 
     @OETestDepends(
         ["test_00_linux_boot.LinuxBootTest.test_linux_boot"]
@@ -162,36 +175,16 @@ class LinuxCryptoExtensionTest(OERuntimeTestCase):
             self._generate_certificate()
             self._start_ssl_server()
 
-            with_crypto_output = (
-                self._download_with_crypto_extension()
-            )
-            with_crypto_times = self._extract_time_from_output(
-                with_crypto_output
-            )
+            with_crypto_samples = self._sample_downloads(enabled=True)
+            without_crypto_samples = self._sample_downloads(enabled=False)
 
-            without_crypto_output = (
-                self._download_without_crypto_extension()
-            )
-            without_crypto_times = self._extract_time_from_output(
-                without_crypto_output
-            )
-
-            self.assertGreater(
-                without_crypto_times.get("real", 0),
-                with_crypto_times.get("real", 0),
-                msg=(
-                    "Crypto extension should provide better "
-                    "performance (lower real time)"
-                ),
-            )
-            self.assertGreater(
-                without_crypto_times.get("user", 0),
-                with_crypto_times.get("user", 0),
-                msg=(
-                    "Crypto extension should reduce CPU time "
-                    "(lower user time)"
-                ),
-            )
+            try:
+                validate_crypto_samples(
+                    with_crypto_samples,
+                    without_crypto_samples,
+                )
+            except ValueError as error:
+                self.fail(f"Crypto extension timing validation failed: {error}")
         finally:
             try:
                 self._cleanup_server()
