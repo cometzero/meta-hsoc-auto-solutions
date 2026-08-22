@@ -5,9 +5,7 @@
 #
 # noqa: SIZE_OK - kept aligned with the upstream MBPP validation sequence.
 
-import contextlib
 import re
-import warnings
 
 from oeqa.core.decorator.depends import OETestDepends
 from oeqa.runtime.case import OERuntimeTestCase
@@ -15,7 +13,6 @@ from oeqa.utils.arm_auto_solutions_config import (
     ArmAutoSolutionsConfig,
 )
 from oeqa.utils.linux_terminal_utils import LinuxTermUtils
-from test_72_power_cpufreq import CPUFrequencyTest
 
 
 class MBPPTest(OERuntimeTestCase):
@@ -70,11 +67,21 @@ class MBPPTest(OERuntimeTestCase):
 
     def setUp(self):
         super().setUp()
-        if str(self.td.get("PC_CPUS_COUNT")) != "16":
-            self.skipTest("MBPP requires a 16-CPU Apollo configuration")
+        self.assertEqual(
+            str(self.td.get("PC_CPUS_COUNT")),
+            "16",
+            "MBPP requires a 16-CPU Apollo configuration",
+        )
         self.lt = type(self).lt
         self.pc_console = type(self).linux_console
         self._expect_root_prompt()
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls._restore_default_state()
+        finally:
+            super(MBPPTest, cls).tearDownClass()
 
     def _expect_root_prompt(self):
         self.lt.send_wait_prompt()
@@ -100,14 +107,14 @@ class MBPPTest(OERuntimeTestCase):
         outcome = self._assert_set_outcome(mode, out)
         self._expect_root_prompt()
         if outcome == "cores_offline":
-            self.skipTest("Skip: some cores are offline.")
+            self.fail("not all 16 cores are online")
         if outcome == "changed":
             self._validate_sysfs_for_mode(mode)
 
     def _dump_and_expect_current(self, mode_regex: str):
         _, out = self.lt.run(f"{self.MBPP_PATH} -d", timeout=120)
         if self.RE_NOT_ALL_CORES.search(out):
-            self.skipTest("Skip: some cores are offline (dump).")
+            self.fail("not all 16 cores are online during profile dump")
         self.assertRegex(out, self.make_re_dump_cur(mode_regex))
         self._expect_root_prompt()
 
@@ -125,13 +132,8 @@ class MBPPTest(OERuntimeTestCase):
             "cat \"$f\" 2>/dev/null; "
             "done"
         )
-        try:
-            _, out = self.lt.run(cmd, timeout=120)
-        except Exception:
-            # flatten nested try/except → simpler
-            with contextlib.suppress(Exception):
-                self.lt.run_in_progress = False
-            out = ""
+        status, out = self.lt.run(cmd, timeout=120)
+        self.assertEqual(status, 0, msg=f"failed to read {leaf}:\n{out}")
 
         pairs = []
         for line in out.strip().splitlines():
@@ -147,16 +149,8 @@ class MBPPTest(OERuntimeTestCase):
     def _assert_governors(self, expected_governor: str):
         if not expected_governor:
             return
-        try:
-            pairs = self._read_sysfs_pairs("scaling_governor")
-        except Exception:
-            pairs = []
-        if not pairs:
-            warnings.warn(
-                "No readable scaling_governor entries found. "
-                "Skipping governor validation."
-            )
-            return
+        pairs = self._read_sysfs_pairs("scaling_governor")
+        self.assertTrue(pairs, "no readable scaling_governor entries found")
         mismatches = [
             (cpu, gov, expected_governor)
             for cpu, gov in pairs if gov != expected_governor
@@ -165,7 +159,30 @@ class MBPPTest(OERuntimeTestCase):
             details = ", ".join(
                 f"{cpu}:{gov}->{exp}" for cpu, gov, exp in mismatches
             )
-            warnings.warn(f"Governor mismatch(es): {details}")
+            self.fail(f"Governor mismatch(es): {details}")
+
+    @classmethod
+    def _restore_default_state(cls):
+        command = (
+            "for f in /sys/devices/system/cpu/cpu*/online; do "
+            "[ -f \"$f\" ] && echo 1 > \"$f\"; "
+            "done; "
+            "for d in /sys/devices/system/cpu/cpufreq/policy*; do "
+            "[ -d \"$d\" ] || continue; "
+            "echo schedutil > \"$d/scaling_governor\"; "
+            "done; "
+            "rm -f /tmp/mbpp_tmp; "
+            "test \"$(nproc --all)\" -eq 16; "
+            "test \"$(nproc)\" -eq 16; "
+            "for d in /sys/devices/system/cpu/cpufreq/policy*; do "
+            "[ \"$(cat \"$d/scaling_governor\")\" = schedutil ] || exit 1; "
+            "done"
+        )
+        status, out = cls.lt.run(command, timeout=180)
+        if status != 0:
+            raise AssertionError(
+                f"failed to restore MBPP all-online/schedutil state:\n{out}"
+            )
 
     def _validate_sysfs_for_mode(self, mode: str):
         expected = self.EXPECTED_SYSFS.get(mode, {})
@@ -191,7 +208,7 @@ class MBPPTest(OERuntimeTestCase):
     def test_02_help_and_list(self):
         _, out_h = self.lt.run(f"{self.MBPP_PATH} -h", timeout=120)
         if self.RE_NOT_ALL_CORES.search(out_h):
-            self.skipTest("Skip: some cores are offline (-h).")
+            self.fail("not all 16 cores are online for MBPP help")
         self.assertRegex(
             out_h,
             r"Simple shell script for setting mission "
@@ -206,7 +223,7 @@ class MBPPTest(OERuntimeTestCase):
 
         _, out_l = self.lt.run(f"{self.MBPP_PATH} -l", timeout=120)
         if self.RE_NOT_ALL_CORES.search(out_l):
-            self.skipTest("Skip: some cores are offline (-l).")
+            self.fail("not all 16 cores are online for MBPP list")
         self.assertRegex(out_l, r"Available power profiles:")
         self.assertRegex(out_l, r"- Parking")
         self.assertRegex(out_l, r"- City")
@@ -224,7 +241,7 @@ class MBPPTest(OERuntimeTestCase):
     def test_03_dump_initial_then_set_parking_and_verify(self):
         _, out_d = self.lt.run(f"{self.MBPP_PATH} -d", timeout=120)
         if self.RE_NOT_ALL_CORES.search(out_d):
-            self.skipTest("Skip: some cores are offline (dump).")
+            self.fail("not all 16 cores are online for initial MBPP dump")
         self.assertRegex(out_d, self.RE_DUMP_OR_NONE)
         self._expect_root_prompt()
         self._set_and_expect_set("parking")
@@ -240,7 +257,7 @@ class MBPPTest(OERuntimeTestCase):
             _, out = self.lt.run(f"{self.MBPP_PATH} -s {mode}", timeout=120)
             outcome = self._assert_set_outcome(mode, out)
             if outcome == "cores_offline":
-                self.skipTest("Skip: some cores are offline (idempotent).")
+                self.fail("not all 16 cores are online for idempotent MBPP")
             self._expect_root_prompt()
 
     @OETestDepends([
@@ -259,7 +276,7 @@ class MBPPTest(OERuntimeTestCase):
                 outcome = self._assert_set_outcome(expected_mode, out)
 
                 if outcome == "cores_offline":
-                    self.skipTest("Skip: cores offline (case-insensitive).")
+                    self.fail("not all 16 cores are online for MBPP case handling")
 
                 self._expect_root_prompt()
 
@@ -276,7 +293,7 @@ class MBPPTest(OERuntimeTestCase):
     def test_06_invalid_profile_selection(self):
         _, out = self.lt.run(f"{self.MBPP_PATH} -d", timeout=120)
         if self.RE_NOT_ALL_CORES.search(out):
-            self.skipTest("Skip: cores offline (dump).")
+            self.fail("not all 16 cores are online before invalid MBPP input")
         m = re.search(
             r"Current selected profile is: "
             r"(?P<cur>parking|city|highway)", out,
@@ -289,7 +306,7 @@ class MBPPTest(OERuntimeTestCase):
             _, out_bad = self.lt.run(f"{self.MBPP_PATH} -s {bad}",
                                      timeout=120)
             if self.RE_NOT_ALL_CORES.search(out_bad):
-                self.skipTest("Skip: cores offline (invalid sel).")
+                self.fail("not all 16 cores are online for invalid MBPP input")
             self.assertRegex(
                 out_bad,
                 r"(Invalid profile selection|Invalid profile|"
@@ -300,7 +317,7 @@ class MBPPTest(OERuntimeTestCase):
 
         _, out2 = self.lt.run(f"{self.MBPP_PATH} -d", timeout=120)
         if self.RE_NOT_ALL_CORES.search(out2):
-            self.skipTest("Skip: cores offline (dump).")
+            self.fail("not all 16 cores are online after invalid MBPP input")
         self.assertRegex(out2, self.make_re_dump_cur(cur))
         self._expect_root_prompt()
 
@@ -332,20 +349,4 @@ class MBPPTest(OERuntimeTestCase):
     def test_09_set_governor_to_default(self):
         """Restore all CPUFreq governors to
         'schedutil' after MBPP tests."""
-        # Bring all CPUs online
-        self.lt.run(
-            'for f in /sys/devices/system/cpu/cpu*/online; do '
-            '[ -f "$f" ] && echo 1 > "$f" 2>/dev/null; '
-            'done',
-            timeout=120
-        )
-        self.lt.send_wait_prompt()
-        CPUFrequencyTest.tc = self.tc
-        CPUFrequencyTest.setUpClass()
-        freq_test = CPUFrequencyTest('test_cpu_frequency_policy')
-
-        # Set governors to schedutil
-        if freq_test._list_policy_dirs(
-                f"{CPUFrequencyTest.CPU_FREQUENCY_SYSFS}/policy*"):
-            for _, policy_dir in freq_test.POLICIES.items():
-                freq_test._write_governor(policy_dir, "schedutil")
+        type(self)._restore_default_state()
