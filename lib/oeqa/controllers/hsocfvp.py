@@ -191,13 +191,7 @@ class HSOCSingleSessionFVPTarget(HSOCOEFVPTarget):
                 command_timeout if boot_timeout is None else boot_timeout
             )
             transition_start = time.monotonic()
-            try:
-                self.transition(OEFVPTargetState.LINUX, timeout=transition_timeout)
-            except (RuntimeError, pexpect.TIMEOUT, pexpect.EOF) as error:
-                raise FVPSerialBootError(
-                    str(error),
-                    serial_console_tail(self),
-                ) from error
+            self.wait_for_linux(transition_timeout)
             if boot_timeout is not None:
                 remaining = boot_timeout - (time.monotonic() - transition_start)
                 if remaining <= 0:
@@ -216,6 +210,15 @@ class HSOCSingleSessionFVPTarget(HSOCOEFVPTarget):
                 f"__OEQA_PRODUCT_END_{token}__",
                 ROOT_SHELL_PROMPT_RE,
             )
+
+    def wait_for_linux(self, timeout):
+        try:
+            self.transition(OEFVPTargetState.LINUX, timeout=timeout)
+        except (RuntimeError, pexpect.TIMEOUT, pexpect.EOF) as error:
+            raise FVPSerialBootError(
+                str(error),
+                serial_console_tail(self),
+            ) from error
 
 
 class HSOCBSPFVPTarget(HSOCOEFVPTarget):

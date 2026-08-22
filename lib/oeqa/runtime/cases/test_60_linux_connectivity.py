@@ -10,7 +10,7 @@ import signal
 import time
 from subprocess import PIPE, Popen
 from time import sleep
-from typing import Protocol
+from typing import Protocol, TypeAlias
 
 from oeqa.core.decorator.depends import OETestDepends
 from oeqa.core.decorator.oetimeout import OETimeout
@@ -24,17 +24,21 @@ import pexpect
 NETWORK_READY_TIMEOUT_SECONDS = 120
 NETWORK_READY_POLL_SECONDS = 2
 SERIAL_COMMAND_TIMEOUT_SECONDS = 15
-CONNECTIVITY_TEST_TIMEOUT_SECONDS = 180
+DEFAULT_LINUX_BOOT_TIMEOUT_SECONDS = 10 * 60
+CONNECTIVITY_TEST_TIMEOUT_SECONDS = 60 * 60
 NETWORK_DIAGNOSTIC_COMMANDS = (
     "ip -4 addr",
     "ip route",
     "networkctl --no-pager --full",
 )
+TestDataValue: TypeAlias = str | int | list[str] | dict[str, str] | None
 
 
 class ConnectivityTarget(Protocol):
     ip: str
     server_ip: str
+
+    def wait_for_linux(self, timeout: int) -> None: ...
 
     def run_serial(
         self,
@@ -48,6 +52,21 @@ class ConnectivityTarget(Protocol):
 
 class LinuxConnectivityTest(OERuntimeTestCase):
     target: ConnectivityTarget
+    td: dict[str, TestDataValue]
+
+    def _linux_boot_timeout(self):
+        raw_timeout = self.td.get("TEST_FVP_LINUX_BOOT_TIMEOUT")
+        if raw_timeout is None or raw_timeout == "":
+            return DEFAULT_LINUX_BOOT_TIMEOUT_SECONDS
+        if not isinstance(raw_timeout, (str, int)):
+            self.fail("TEST_FVP_LINUX_BOOT_TIMEOUT must be a positive integer")
+        try:
+            timeout = int(raw_timeout)
+        except (TypeError, ValueError) as error:
+            self.fail(f"TEST_FVP_LINUX_BOOT_TIMEOUT must be a positive integer: {error}")
+        if timeout <= 0:
+            self.fail("TEST_FVP_LINUX_BOOT_TIMEOUT must be a positive integer")
+        return timeout
 
     def _network_addresses(self):
         target_value = self.target.ip
@@ -89,6 +108,13 @@ class LinuxConnectivityTest(OERuntimeTestCase):
 
     def _wait_for_guest_network(self):
         target_ip, server_ip = self._network_addresses()
+        try:
+            self.target.wait_for_linux(self._linux_boot_timeout())
+        except FVPSerialBootError as error:
+            self.fail(
+                "Guest Linux boot failed before network readiness; "
+                f"network diagnostics unavailable before shell login:\n{error}"
+            )
         target_pattern = shlex.quote(f"inet {target_ip}/")
         server = shlex.quote(server_ip)
         command = (
@@ -106,7 +132,6 @@ class LinuxConnectivityTest(OERuntimeTestCase):
                 last_status, last_output = self.target.run_serial(
                     command,
                     timeout=command_timeout,
-                    boot_timeout=remaining,
                 )
             except FVPSerialBootError as error:
                 self.fail(
