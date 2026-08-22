@@ -258,3 +258,7 @@ class HSOCBSPFVPTarget(HSOCOEFVPTarget):
                 f"__OEQA_BSP_END_{token}__",
                 BSP_SHELL_PROMPT_RE,
             )
+
+    def run_ssh(self, cmd, timeout=None):
+        self.transition(OEFVPTargetState.LINUX, timeout=self.timeout)
+        return super().run(cmd, timeout)

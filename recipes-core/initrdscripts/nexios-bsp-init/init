@@ -17,6 +17,12 @@ grep -qw configfs /proc/filesystems &&
 mdev -s
 depmod -a
 
+failed_shell() {
+    printf '%s\n' 'NEXIOS_BSP_INITRAMFS_FAILED'
+    export PS1='nexios-bsp-failed# '
+    exec setsid -c sh </dev/console >/dev/console 2>&1
+}
+
 machine="$(cat /etc/nexios-bsp-machine)"
 for module in virtio_rpmsg_bus arm_si_rproc rpmsg_net pfdi_misc; do
     set -- "${module}"
@@ -46,10 +52,37 @@ else
 fi
 
 if ! /usr/libexec/nexios-bsp/selftest; then
-    printf '%s\n' 'NEXIOS_BSP_INITRAMFS_FAILED'
-    export PS1='nexios-bsp-failed# '
-    exec setsid -c sh </dev/console >/dev/console 2>&1
+    failed_shell
 fi
+
+network_interface=""
+for device_path in /sys/class/net/*; do
+    device_name="${device_path##*/}"
+    case "${device_name}" in
+        lo|sit*|ip6tnl*|tunl*) continue ;;
+    esac
+    network_interface="${device_name}"
+    break
+done
+
+if test -z "${network_interface}" ||
+    ! ip link set "${network_interface}" up ||
+    ! udhcpc -n -q -t 10 -T 1 -i "${network_interface}"; then
+    printf 'NEXIOS_BSP_NETWORK interface=%s result=FAIL\n' \
+        "${network_interface:-missing}"
+    failed_shell
+fi
+printf 'NEXIOS_BSP_NETWORK interface=%s result=PASS\n' "${network_interface}"
+
+mkdir -p /etc/dropbear
+dropbear_key=/etc/dropbear/dropbear_rsa_host_key
+if ! dropbearkey -t rsa -f "${dropbear_key}" >/run/dropbearkey.log 2>&1 ||
+    ! dropbear -r "${dropbear_key}" -p 22 -B ||
+    ! pidof dropbear >/dev/null; then
+    printf '%s\n' 'NEXIOS_BSP_SSH daemon=dropbear result=FAIL'
+    failed_shell
+fi
+printf '%s\n' 'NEXIOS_BSP_SSH daemon=dropbear result=PASS'
 
 printf 'NEXIOS_BSP_INITRAMFS_READY machine=%s\n' "${machine}"
 export PS1='nexios-bsp# '

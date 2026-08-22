@@ -20,6 +20,8 @@ PACKAGE_INSTALL = " \
     base-files \
     base-passwd \
     busybox \
+    busybox-udhcpc \
+    dropbear \
     nexios-bsp-init \
     kmod \
     util-linux-mount \
@@ -33,16 +35,13 @@ PACKAGE_INSTALL = " \
     pfdi-bsp-app \
 "
 
-IMAGE_FEATURES = ""
-IMAGE_FEATURES:auto-ad-nexios = ""
+IMAGE_FEATURES = "allow-empty-password allow-root-login empty-root-password"
+IMAGE_FEATURES:auto-ad-nexios = "allow-empty-password allow-root-login empty-root-password"
 IMAGE_FEATURES:remove:auto-ad-nexios = " \
-    allow-empty-password \
-    allow-root-login \
     baremetal \
     bash-completion-pkgs \
     cloud-service \
     demos \
-    empty-root-password \
     post-install-logging \
     ssh-server-openssh \
 "
