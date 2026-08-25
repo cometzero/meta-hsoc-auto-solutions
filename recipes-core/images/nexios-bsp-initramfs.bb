@@ -34,6 +34,7 @@ PACKAGE_INSTALL = " \
     pfdi-misc-mod \
     pfdi-bsp-app \
 "
+PACKAGE_INSTALL:append:apollo-fvp = " libgpiod-tools"
 
 IMAGE_FEATURES = "allow-empty-password allow-root-login empty-root-password"
 IMAGE_FEATURES:auto-ad-nexios = "allow-empty-password allow-root-login empty-root-password"
