@@ -8,6 +8,9 @@ QBOX_CONFIG:apollo-qvp = "platforms/apollo/apollo-qvp.lua"
 QBOX_APOLLO_NUM_CPUS:apollo-qvp = "${PC_CPUS_COUNT}"
 QBOX_ENV_PASSTHROUGH:append:apollo-qvp = " QBOX_APOLLO_NUM_CPUS"
 
+# Embed the OS device tree in UKIs; the firmware FDT describes an earlier map.
+KERNEL_DEVICETREE:apollo-qvp = "apollo-qvp.dtb"
+
 QBOX_IMAGES[kernel] = "${KERNEL_IMAGETYPE}"
 QBOX_IMAGES[dtb] = "apollo-qvp.dtb"
 QBOX_IMAGES[rootfs_wic] = "${@d.getVar('IMAGE_LINK_NAME') + '.wic' if 'wic' in (d.getVar('IMAGE_FSTYPES') or '').split() else ''}"
