@@ -35,7 +35,7 @@ PACKAGE_INSTALL = " \
     pfdi-bsp-app \
 "
 PACKAGE_INSTALL:append:apollo-fvp = " libgpiod-tools"
-PACKAGE_INSTALL:append:apollo-qvp = " libgpiod-tools i2c-tools devmem2 kernel-module-spi-loopback-test"
+PACKAGE_INSTALL:append:apollo-qvp = " libgpiod-tools i2c-tools devmem2 kernel-module-spi-loopback-test kernel-module-dmatest"
 
 IMAGE_FEATURES = "allow-empty-password allow-root-login empty-root-password"
 IMAGE_FEATURES:auto-ad-nexios = "allow-empty-password allow-root-login empty-root-password"
