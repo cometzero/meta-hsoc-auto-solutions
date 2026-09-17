@@ -1,0 +1,168 @@
+From: Chanho Park <parkch98@gmail.com>
+Subject: [PATCH] aplay: add a bounded nonblocking drain option
+
+Allow slow functional devices to drain without extending the kernel PCM
+core timeout. Keep legacy behavior unless --drain-timeout is supplied.
+Report timeout and stream errors instead of accepting truncated playback.
+
+Upstream-Status: Inappropriate [optional virtual-platform test policy]
+Signed-off-by: Chanho Park <parkch98@gmail.com>
+
+--- a/aplay/aplay.c
++++ b/aplay/aplay.c
+@@ -114,6 +114,7 @@
+ static int mmap_flag = 0;
+ static int interleaved = 1;
+ static int nonblock = 0;
++static int drain_timeout_ms;
+ static volatile sig_atomic_t in_aborting = 0;
+ static uint8_t *audiobuf = NULL;
+ static snd_pcm_uframes_t chunk_size = 0;
+@@ -250,6 +251,7 @@
+ "    --use-strftime      apply the strftime facility to the output file name\n"
+ "    --dump-hw-params    dump hw_params of the device\n"
+ "    --fatal-errors      treat all errors as fatal\n"
++"    --drain-timeout=#    bound nonblocking playback drain in milliseconds\n"
+   )
+ 		, command);
+ 	printf(_("Recognized sample formats are:"));
+@@ -437,6 +439,7 @@
+ 	OPT_DUMP_HWPARAMS,
+ 	OPT_FATAL_ERRORS,
+ 	OPT_SUBFORMAT,
++	OPT_DRAIN_TIMEOUT,
+ };
+ 
+ /*
+@@ -525,6 +528,7 @@
+ 		{"interactive", 0, 0, 'i'},
+ 		{"dump-hw-params", 0, 0, OPT_DUMP_HWPARAMS},
+ 		{"fatal-errors", 0, 0, OPT_FATAL_ERRORS},
++		{"drain-timeout", 1, 0, OPT_DRAIN_TIMEOUT},
+ #ifdef CONFIG_SUPPORT_CHMAP
+ 		{"chmap", 1, 0, 'm'},
+ #endif
+@@ -582,6 +586,19 @@
+ 		case OPT_VERSION:
+ 			version();
+ 			return 0;
++		case OPT_DRAIN_TIMEOUT: {
++			char *end;
++			long value;
++
++			errno = 0;
++			value = strtol(optarg, &end, 10);
++			if (errno || end == optarg || *end || value < 1 || value > INT_MAX) {
++				error(_("invalid drain timeout: %s"), optarg);
++				return 1;
++			}
++			drain_timeout_ms = value;
++			break;
++		}
+ 		case 'l':
+ 			do_device_list = 1;
+ 			break;
+@@ -2382,6 +2399,71 @@
+ 	free(buf);
+ }
+ 
++/* Use a userspace deadline without changing ALSA's blocking drain timeout. */
++static void drain_playback(void)
++{
++	struct timespec start, now;
++	int err;
++
++	if (!drain_timeout_ms) {
++		snd_pcm_nonblock(handle, 0);
++		snd_pcm_drain(handle);
++		snd_pcm_nonblock(handle, nonblock);
++		return;
++	}
++	err = snd_pcm_nonblock(handle, 1);
++	if (err < 0)
++		goto failed;
++	if (clock_gettime(CLOCK_MONOTONIC, &start) < 0) {
++		err = -errno;
++		goto failed;
++	}
++	for (;;) {
++		snd_pcm_state_t state;
++		int64_t elapsed;
++
++		if (in_aborting) {
++			err = -EINTR;
++			break;
++		}
++		err = snd_pcm_drain(handle);
++		if (!err)
++			break;
++		if (err != -EAGAIN)
++			goto failed;
++		state = snd_pcm_state(handle);
++		if (state == SND_PCM_STATE_SETUP) {
++			err = 0;
++			break;
++		}
++		if (state != SND_PCM_STATE_DRAINING) {
++			err = -EIO;
++			goto failed;
++		}
++		if (clock_gettime(CLOCK_MONOTONIC, &now) < 0) {
++			err = -errno;
++			goto failed;
++		}
++		elapsed = (int64_t)(now.tv_sec - start.tv_sec) * 1000 +
++			(now.tv_nsec - start.tv_nsec) / 1000000;
++		if (elapsed >= drain_timeout_ms) {
++			err = -ETIMEDOUT;
++			goto failed;
++		}
++		/* Writable PCM poll events need not mean drain has completed. */
++		poll(NULL, 0, 1);
++	}
++	if (err < 0)
++		goto failed;
++	err = snd_pcm_nonblock(handle, nonblock);
++	if (err >= 0)
++		return;
++failed:
++	error(_("playback drain error: %s"), snd_strerror(err));
++	snd_pcm_drop(handle);
++	prg_exit(EXIT_FAILURE);
++}
++
+ static void voc_pcm_flush(void)
+ {
+ 	if (buffer_pos > 0) {
+@@ -2392,9 +2474,7 @@
+ 		if (pcm_write(audiobuf, b) != (ssize_t)b)
+ 			error(_("voc_pcm_flush error"));
+ 	}
+-	snd_pcm_nonblock(handle, 0);
+-	snd_pcm_drain(handle);
+-	snd_pcm_nonblock(handle, nonblock);
++	drain_playback();
+ }
+ 
+ static void voc_play(int fd, int ofs, char *name)
+@@ -2934,9 +3014,7 @@
+ 		l = 0;
+ 	}
+ 	if (!in_aborting) {
+-		snd_pcm_nonblock(handle, 0);
+-		snd_pcm_drain(handle);
+-		snd_pcm_nonblock(handle, nonblock);
++		drain_playback();
+ 	}
+ }
+ 
+@@ -3414,9 +3492,7 @@
+ 		count -= r;
+ 	}
+ 	if (!in_aborting) {
+-		snd_pcm_nonblock(handle, 0);
+-		snd_pcm_drain(handle);
+-		snd_pcm_nonblock(handle, nonblock);
++		drain_playback();
+ 	}
+ }
