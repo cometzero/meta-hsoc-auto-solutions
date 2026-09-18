@@ -36,8 +36,6 @@ PACKAGE_INSTALL = " \
 "
 PACKAGE_INSTALL:append:apollo-fvp = " libgpiod-tools"
 PACKAGE_INSTALL:append:apollo-qvp = " libgpiod-tools i2c-tools devmem2 kernel-module-spi-loopback-test kernel-module-dmatest alsa-utils-aplay i2s-loopback pci-endpoint-selftest coreutils"
-# Reproducible CPU-affinity tests without changing the default scheduler policy.
-PACKAGE_INSTALL:append:apollo-qvp = " util-linux-taskset"
 
 IMAGE_FEATURES = "allow-empty-password allow-root-login empty-root-password"
 IMAGE_FEATURES:auto-ad-nexios = "allow-empty-password allow-root-login empty-root-password"
