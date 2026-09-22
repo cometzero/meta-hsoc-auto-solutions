@@ -74,3 +74,9 @@ BOOTLOADER_LINUX_APPEND:append = " \
 "
 
 addtask uki after do_image_cpio before do_image_wic do_image_complete
+
+# Standalone AutoSD UKI boot prerequisites; keep full-platform firmware and WIC
+# unchanged. These artifacts are deployed, not installed in the BSP initramfs.
+APOLLO_AUTOSD_BOOT_DEPENDS = ""
+APOLLO_AUTOSD_BOOT_DEPENDS:apollo-qvp = "u-boot-apollo-qemu:do_deploy ukiboot:do_deploy"
+do_build[depends] += "${APOLLO_AUTOSD_BOOT_DEPENDS}"
