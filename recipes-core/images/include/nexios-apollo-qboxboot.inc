@@ -4,7 +4,7 @@ IMAGE_CLASSES:append:apollo-qvp = " qboxboot"
 
 QBOX_PROVIDER:apollo-qvp = "qbox-apollo-qvp-native"
 QBOX_EXE:apollo-qvp = "platforms-vp"
-QBOX_CONFIG:apollo-qvp = "platforms/apollo/apollo-qvp.lua"
+QBOX_CONFIG:apollo-qvp = "platforms/apollo/apollo-qvp-saturn-v.lua"
 QBOX_APOLLO_NUM_CPUS:apollo-qvp = "${PC_CPUS_COUNT}"
 QBOX_ENV_PASSTHROUGH:append:apollo-qvp = " QBOX_APOLLO_NUM_CPUS"
 
