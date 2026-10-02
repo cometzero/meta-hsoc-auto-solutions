@@ -9,10 +9,10 @@ QBOX_APOLLO_NUM_CPUS:apollo-qvp = "${PC_CPUS_COUNT}"
 QBOX_ENV_PASSTHROUGH:append:apollo-qvp = " QBOX_APOLLO_NUM_CPUS"
 
 # Embed the OS device tree in UKIs; the firmware FDT describes an earlier map.
-KERNEL_DEVICETREE:apollo-qvp = "apollo-qvp.dtb"
+KERNEL_DEVICETREE:apollo-qvp = "apollo-qvp-saturn-v.dtb"
 
 QBOX_IMAGES[kernel] = "${KERNEL_IMAGETYPE}"
-QBOX_IMAGES[dtb] = "apollo-qvp.dtb"
+QBOX_IMAGES[dtb] = "apollo-qvp-saturn-v.dtb"
 QBOX_IMAGES[rootfs_wic] = "${@d.getVar('IMAGE_LINK_NAME') + '.wic' if 'wic' in (d.getVar('IMAGE_FSTYPES') or '').split() else ''}"
 QBOX_IMAGES[ap_flash] = "ap-flash-image.img"
 QBOX_IMAGES[rse_flash] = "rse-flash-image.img"
