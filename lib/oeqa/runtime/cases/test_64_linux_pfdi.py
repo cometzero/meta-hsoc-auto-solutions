@@ -17,6 +17,7 @@ class LinuxPFDITest(OERuntimeTestCase):
         self.pc_console = self.target.DEFAULT_CONSOLE
         self.hostname = ArmAutoSolutionsConfig.hostname
         self.cpu_count = int(self.td.get("PC_CPUS_COUNT", "1"))
+        self.interval_ms = int(self.td.get("PFDI_AP_INTERVAL_MS", "60"))
 
     @staticmethod
     def check_error_messages(messages):
@@ -44,7 +45,7 @@ class LinuxPFDITest(OERuntimeTestCase):
         self.target.expect(
             self.pc_console,
             rf"Loading config V1.0: running "
-            rf"{self.cpu_count} tasks every 60 ms",
+            rf"{self.cpu_count} tasks every {self.interval_ms} ms",
             timeout=120,
         )
         self.target.expect(
@@ -80,7 +81,7 @@ class LinuxPFDITest(OERuntimeTestCase):
     def test_pfdi_app(self):
         test_start_range = 0
         test_end_range = 40
-        time_in_millisecond = 60
+        time_in_millisecond = self.interval_ms
         number_of_config_files = 1
         output_directory = "."
 
