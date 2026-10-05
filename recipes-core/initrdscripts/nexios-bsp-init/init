@@ -36,6 +36,16 @@ for module in virtio_rpmsg_bus arm_si_rproc rpmsg_net pfdi_misc; do
     fi
 done
 
+# Only the vMCU launch profile may claim UART2; ordinary BSP tests use loopback.
+case " $(cat /proc/cmdline) " in
+    *' apollo.vmcu=1 '*)
+        if test "${machine}" = "apollo-qvp" && test -x /usr/bin/vmcu-ap; then
+            /usr/bin/vmcu-ap </dev/null >/run/vmcu-ap.log 2>&1 &
+            printf '%s\n' 'NEXIOS_BSP_SERVICE name=vmcu-ap result=STARTED'
+        fi
+        ;;
+esac
+
 pfdi_app=/usr/bin/pfdi-sample-app
 pfdi_config=/etc/pfdi/pfdi_test_config_0.pack
 if test -x "${pfdi_app}" && test -r "${pfdi_config}"; then
