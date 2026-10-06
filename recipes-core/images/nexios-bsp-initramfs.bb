@@ -80,3 +80,8 @@ addtask uki after do_image_cpio before do_image_wic do_image_complete
 APOLLO_AUTOSD_BOOT_DEPENDS = ""
 APOLLO_AUTOSD_BOOT_DEPENDS:apollo-qvp = "u-boot-apollo-qemu:do_deploy ukiboot:do_deploy"
 do_build[depends] += "${APOLLO_AUTOSD_BOOT_DEPENDS}"
+
+# The board's vMCU runs beside QBox, outside the AP initramfs.
+APOLLO_VMCU_DEPENDS = ""
+APOLLO_VMCU_DEPENDS:apollo-qvp = "zephyr-vmcu:do_deploy qemu-apollo-native:do_deploy"
+do_build[depends] += "${APOLLO_VMCU_DEPENDS}"
