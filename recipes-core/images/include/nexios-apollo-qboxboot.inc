@@ -20,3 +20,13 @@ QBOX_IMAGES[rse_otp] = "rse-otp-image.img"
 QBOX_IMAGES[rse_rom] = "rse-rom-image.img"
 QBOX_IMAGES[si0_ramfw] = "si0_ramfw.bin"
 QBOX_IMAGES[si_cl1] = "zephyr-demos-cl1.bin"
+
+# Full-system AutoSD UKI boot artifacts, deployed alongside both product and BSP images.
+APOLLO_AUTOSD_BOOT_DEPENDS = ""
+APOLLO_AUTOSD_BOOT_DEPENDS:apollo-qvp = "ukiboot:do_deploy"
+do_build[depends] += "${APOLLO_AUTOSD_BOOT_DEPENDS}"
+
+# The board's vMCU runs beside QBox, outside the AP root filesystem.
+APOLLO_VMCU_DEPENDS = ""
+APOLLO_VMCU_DEPENDS:apollo-qvp = "zephyr-vmcu:do_deploy qemu-apollo-native:do_deploy vmcu-silkit-native:do_deploy"
+do_build[depends] += "${APOLLO_VMCU_DEPENDS}"
