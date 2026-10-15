@@ -53,15 +53,38 @@ do_configure() {
         -DZEPHYR_MODULES=${S} \
         -DDTC_OVERLAY_FILE=${S}/boards/qemu_tc3x.overlay \
         -DSYSROOT_DIR=${VMCU_TOOLCHAIN}/tricore-elf
+    cmake -S ${S} -B ${B}/spi -G Ninja \
+        -DBOARD=qemu_tc3x \
+        -DPython3_EXECUTABLE=${PYTHON} \
+        -DZEPHYR_MODULES=${S} \
+        -DDTC_OVERLAY_FILE=${S}/boards/qemu_tc3x.overlay \
+        -DCONFIG_VMCU_SAFETY_SPI=y \
+        -DSYSROOT_DIR=${VMCU_TOOLCHAIN}/tricore-elf
 }
 
 do_compile() {
     cmake --build ${B} -- ${PARALLEL_MAKE}
+    cmake --build ${B}/spi -- ${PARALLEL_MAKE}
 }
 
 do_install[noexec] = "1"
-do_deploy() {
-    install -d ${DEPLOYDIR}
-    install -m 0644 ${B}/zephyr/zephyr.elf ${DEPLOYDIR}/zephyr-vmcu-tc397.elf
+python do_deploy() {
+    import hashlib
+    import json
+    import os
+    import shutil
+
+    destination = d.getVar("DEPLOYDIR")
+    os.makedirs(destination, exist_ok=True)
+    for subdir, suffix, transport in (("", "", "uart"), ("spi", "-spi", "spi")):
+        path = os.path.join(destination, "zephyr-vmcu-tc397%s.elf" % suffix)
+        shutil.copyfile(os.path.join(d.getVar("B"), subdir, "zephyr", "zephyr.elf"), path)
+        os.chmod(path, 0o644)
+        with open(path, "rb") as firmware:
+            digest = hashlib.sha256(firmware.read()).hexdigest()
+        with open(path + ".json", "w") as output:
+            json.dump({"schema_version": 1, "safety_transport": transport,
+                       "sha256": digest}, output, indent=2)
+            output.write("\n")
 }
 addtask deploy after do_compile before do_build
