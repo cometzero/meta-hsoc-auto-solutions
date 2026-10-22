@@ -1,0 +1,6 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+if test -s /run/gem5-workload.sh; then
+    exec /bin/sh /run/gem5-workload.sh
+fi
+exec /bin/sh /etc/gem5-workload.sh
