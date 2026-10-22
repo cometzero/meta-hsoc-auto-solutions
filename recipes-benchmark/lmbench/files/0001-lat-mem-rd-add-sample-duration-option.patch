@@ -1,0 +1,93 @@
+Subject: [PATCH] lat_mem_rd: allow explicit sample duration
+
+Add -E microseconds for simulator runs, preserving the 100000 us default.
+An explicit override also selects ENOUGH before calibration, avoiding the
+expensive duration-discovery search. Timer and loop overhead remain measured
+by upstream lib_timing. Other executables and no-option runs are unchanged.
+Label overridden runs as modified lmbench results.
+
+Upstream-Status: Pending
+
+--- a/src/lat_mem_rd.c
++++ b/src/lat_mem_rd.c
+@@ -1,7 +1,7 @@
+ /*
+  * lat_mem_rd.c - measure memory load latency
+  *
+- * usage: lat_mem_rd [-P <parallelism>] [-W <warmup>] [-N <repetitions>] [-t] size-in-MB [stride ...]
++ * usage: lat_mem_rd [-P <parallelism>] [-W <warmup>] [-N <repetitions>] [-E <microseconds>] [-t] size-in-MB [stride ...]
+  *
+  * Copyright (c) 1994 Larry McVoy.  
+  * Copyright (c) 2003, 2004 Carl Staelin.
+@@ -15,6 +15,9 @@
+ char	*id = "$Id: s.lat_mem_rd.c 1.13 98/06/30 16:13:49-07:00 lm@lm.bitmover.com $\n";
+ 
+ #include "bench.h"
++#include <limits.h>
++
++static int sample_usec = 100000;
+ #define STRIDE  (512/sizeof(char *))
+ #define	LOWER	512
+ void	loads(size_t len, size_t range, size_t stride, 
+@@ -32,13 +35,30 @@
+ 	int	parallel = 1;
+ 	int	warmup = 0;
+ 	int	repetitions = -1;
++	int	duration_override = 0;
+         size_t	len;
+ 	size_t	range;
+ 	size_t	stride;
+-	char   *usage = "[-P <parallelism>] [-W <warmup>] [-N <repetitions>] [-t] len [stride...]\n";
+-
+-	while (( c = getopt(ac, av, "tP:W:N:")) != EOF) {
++	char   *usage = "[-P <parallelism>] [-W <warmup>] [-N <repetitions>] [-E <microseconds>] [-t] len [stride...]\n";
++
++	while (( c = getopt(ac, av, "tP:W:N:E:")) != EOF) {
+ 		switch(c) {
++		case 'E': {
++			const unsigned char *p = (const unsigned char *)optarg;
++			unsigned long value = 0;
++			if (!*p) lmbench_usage(ac, av, usage);
++			for (; *p; p++) {
++				if (*p < '0' || *p > '9' ||
++				    value > ((unsigned long)INT_MAX - (*p - '0')) / 10)
++					lmbench_usage(ac, av, usage);
++				value = value * 10 + (*p - '0');
++			}
++			/* benchmp's proportional adjustment requires more than 150 us. */
++			if (value < 200) lmbench_usage(ac, av, usage);
++			sample_usec = (int)value;
++			duration_override = 1;
++			break;
++		}
+ 		case 't':
+ 			fpInit = thrash_initialize;
+ 			break;
+@@ -59,6 +79,18 @@
+ 	}
+ 	if (optind == ac) {
+ 		lmbench_usage(ac, av, usage);
++	}
++
++	if (duration_override) {
++		char value[32];
++		snprintf(value, sizeof(value), "%d", sample_usec);
++		/* Skip duration discovery, but retain measured timer/loop overhead. */
++		if (setenv("ENOUGH", value, 1) != 0) {
++			perror("setenv ENOUGH");
++			return 1;
++		}
++		fprintf(stderr, "# modified lmbench lat_mem_rd: sample-usec=%d "
++			"(ENOUGH override; calibrated overhead)\n", sample_usec);
+ 	}
+ 
+         len = atoi(av[optind]);
+@@ -141,7 +173,7 @@
+ 	 * Now walk them and time it.
+ 	 */
+ 	benchmp(fpInit, benchmark_loads, mem_cleanup, 
+-		100000, parallel, warmup, repetitions, &state);
++		sample_usec, parallel, warmup, repetitions, &state);
+ #endif
+ 
+ 	/* We want to get to nanoseconds / load. */
