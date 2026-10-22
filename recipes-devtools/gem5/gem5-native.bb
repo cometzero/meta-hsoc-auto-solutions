@@ -76,3 +76,5 @@ python do_deploy() {
         output.write('\n')
 }
 addtask deploy after do_populate_sysroot before do_build
+
+do_build[depends] += "gem5-apollo-guest:do_deploy"
