@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: MIT
 SUMMARY = "gem5 ARM simulator for the Apollo application domain"
+PV = "26.0.0.0"
 HOMEPAGE = "https://www.gem5.org/"
 LICENSE = "BSD-3-Clause & BSD-2-Clause & MIT & Apache-2.0"
 LIC_FILES_CHKSUM = " \
     file://LICENSE;md5=a585e2893cee63d16a1d8bc16c6297ec \
     file://COPYING;md5=2d9514d69d8abf88b6e9125e759bf0ab \
-    file://ext/libfdt/README;md5=b5faf5bf5660425b3f9f38a65715e967 \
+    file://ext/libfdt/README;md5=efc456d6a0e4e5a8345c8a0753c5d38f \
     file://ext/nomali/LICENSE;md5=3b83ef96387f14655fc854ddc3c6bd57 \
 "
 
