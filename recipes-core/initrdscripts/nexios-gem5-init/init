@@ -6,6 +6,56 @@ failed_init() {
     export PS1='nexios-gem5-failed# '
     exec sh
 }
+quiesce_checkpoint_power() {
+    checkpoint_state=/run/gem5-checkpoint-power
+    mkdir -p "$checkpoint_state/thermal" "$checkpoint_state/governors" || return 1
+    checkpoint_changed=0
+    for checkpoint_zone in /sys/class/thermal/thermal_zone*; do
+        test -d "$checkpoint_zone" || continue
+        checkpoint_type=$(cat "$checkpoint_zone/type") || return 1
+        case "$checkpoint_type" in
+            cluster*-thermal) ;;
+            *) continue ;;
+        esac
+        checkpoint_mode=$(cat "$checkpoint_zone/mode") || return 1
+        case "$checkpoint_mode" in enabled|disabled) ;; *) return 1 ;; esac
+        printf '%s\n' "$checkpoint_mode" > "$checkpoint_state/thermal/${checkpoint_zone##*/}" || return 1
+        printf '%s\n' disabled > "$checkpoint_zone/mode" || return 1
+        checkpoint_changed=1
+    done
+    for checkpoint_policy in /sys/devices/system/cpu/cpufreq/policy*; do
+        test -d "$checkpoint_policy" || continue
+        checkpoint_driver=$(cat "$checkpoint_policy/scaling_driver") || return 1
+        test "$checkpoint_driver" = scmi || continue
+        checkpoint_governor=$(cat "$checkpoint_policy/scaling_governor") || return 1
+        test -n "$checkpoint_governor" || return 1
+        printf '%s\n' "$checkpoint_governor" > "$checkpoint_state/governors/${checkpoint_policy##*/}" || return 1
+        printf '%s\n' userspace > "$checkpoint_policy/scaling_governor" || return 1
+        checkpoint_changed=1
+    done
+    # Stop new requests, then let outstanding SCMI replies and IRQs complete.
+    if test "$checkpoint_changed" = 1; then
+        sleep 0.05 || return 1
+        printf '%s\n' NEXIOS_GEM5_CHECKPOINT_POWER_QUIESCED || return 1
+    fi
+}
+restore_checkpoint_power() {
+    checkpoint_state=/run/gem5-checkpoint-power
+    for checkpoint_saved in "$checkpoint_state"/governors/*; do
+        test -f "$checkpoint_saved" || continue
+        checkpoint_governor=$(cat "$checkpoint_saved") || return 1
+        test -n "$checkpoint_governor" || return 1
+        printf '%s\n' "$checkpoint_governor" > "/sys/devices/system/cpu/cpufreq/${checkpoint_saved##*/}/scaling_governor" || return 1
+    done
+    for checkpoint_saved in "$checkpoint_state"/thermal/*; do
+        test -f "$checkpoint_saved" || continue
+        checkpoint_mode=$(cat "$checkpoint_saved") || return 1
+        printf '%s\n' "$checkpoint_mode" > "/sys/class/thermal/${checkpoint_saved##*/}/mode" || return 1
+    done
+    if test "$checkpoint_changed" = 1; then
+        printf '%s\n' NEXIOS_GEM5_CHECKPOINT_POWER_RESTORED || return 1
+    fi
+}
 mkdir -p /proc /sys /dev /run /tmp || failed_init
 mount -t proc proc /proc || failed_init
 mount -t sysfs sysfs /sys || failed_init
@@ -19,7 +69,9 @@ mount -t tmpfs tmpfs /run || failed_init
 printf '%s\n' 'NEXIOS_GEM5_INITRAMFS_READY'
 case " $(cat /proc/cmdline) " in
     *' gem5.checkpoint=1 '*)
+        quiesce_checkpoint_power || failed_init
         /usr/bin/gem5-control checkpoint || failed_init
+        restore_checkpoint_power || failed_init
         ;;
 esac
 /usr/bin/gem5-control readfile > /run/gem5-workload.sh || failed_init
