@@ -14,7 +14,7 @@ DISTRO_FEATURES:remove:auto-ad-nexios = "overlayfs"
 inherit core-image
 
 PACKAGE_INSTALL = "base-files base-passwd busybox nexios-gem5-init gem5-apollo-guest \
-                   lmbench tinymembench stream stream-gem5-cache"
+                   lmbench tinymembench stream stream-gem5-cache dhrystone stress-ng"
 IMAGE_FEATURES = ""
 IMAGE_FEATURES:auto-ad-nexios = ""
 IMAGE_FEATURES:remove:auto-ad-nexios = "baremetal bash-completion-pkgs cloud-service demos post-install-logging ssh-server-openssh"
