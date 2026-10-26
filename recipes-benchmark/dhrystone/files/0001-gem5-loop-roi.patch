@@ -1,0 +1,160 @@
+Subject: [PATCH] Add optional loop ROI markers for gem5 measurements
+
+Keep the default executable unchanged. The optional build warms up,
+resets benchmark state and validates the measured loop outputs.
+
+Upstream-Status: Inappropriate [gem5-specific measurement]
+
+--- a/dhry_1.c
++++ b/dhry_1.c
+@@ -14,6 +14,12 @@
+  *
+  ****************************************************************************
+  */
++#ifdef GEM5_ROI
++#define _GNU_SOURCE
++#include <errno.h>
++#include <sched.h>
++#include <gem5/m5ops.h>
++#endif
+ #include <stdlib.h>
+ #include <string.h>
+ 
+@@ -73,7 +79,11 @@
+ /* end of variables for time measurement */
+ 
+ 
++#ifdef GEM5_ROI
++int main (int argc, char **argv)
++#else
+ int main (void)
++#endif
+ /*****/
+ 
+   /* main program, corresponds to procedures        */
+@@ -89,6 +99,33 @@
+   REG   int             Run_Index;
+   REG   int             Number_Of_Runs;
+ 
++#ifdef GEM5_ROI
++  int Phase, Requested_Runs, Warmup_Runs;
++  char *end;
++  long count, warmup;
++  cpu_set_t cpus;
++  if (argc != 3) {
++    fprintf(stderr, "usage: dhry-gem5 RUNS WARMUP_RUNS\n");
++    return 2;
++  }
++  errno = 0;
++  count = strtol(argv[1], &end, 10);
++  if (errno || *end || count < 1 || count > 10000000) return 2;
++  errno = 0;
++  warmup = strtol(argv[2], &end, 10);
++  if (errno || *end || warmup < 1 || warmup > 10000000) return 2;
++  Requested_Runs = count;
++  Warmup_Runs = warmup;
++  CPU_ZERO(&cpus);
++  CPU_SET(0, &cpus);
++  if (sched_setaffinity(0, sizeof(cpus), &cpus)) {
++    perror("dhry-gem5 affinity");
++    return 1;
++  }
++  m5_work_begin(0x5a535743, 0);
++  __asm__ volatile("dsb sy" ::: "memory");
++#endif
++
+   /* Initializations */
+ 
+ #ifndef HZ
+@@ -127,7 +164,11 @@
+   printf ("Please give the number of runs through the benchmark: ");
+   {
+     int n;
++#ifdef GEM5_ROI
++    n = Requested_Runs;
++#else
+     scanf ("%d", &n);
++#endif
+     Number_Of_Runs = n;
+   }
+   printf ("\n");
+@@ -146,6 +187,29 @@
+   Begin_Time = time ( (long *) 0);
+ #endif
+ 
++#ifdef GEM5_ROI
++  for (Phase = 0; Phase < 2; ++Phase) {
++    memset(Arr_1_Glob, 0, sizeof(Arr_1_Glob));
++    memset(Arr_2_Glob, 0, sizeof(Arr_2_Glob));
++    memset(Ptr_Glob, 0, sizeof(*Ptr_Glob));
++    memset(Next_Ptr_Glob, 0, sizeof(*Next_Ptr_Glob));
++    Int_Glob = 0; Bool_Glob = 0; Ch_1_Glob = 0; Ch_2_Glob = 0;
++  Ptr_Glob->Ptr_Comp                    = Next_Ptr_Glob;
++  Ptr_Glob->Discr                       = Ident_1;
++  Ptr_Glob->variant.var_1.Enum_Comp     = Ident_3;
++  Ptr_Glob->variant.var_1.Int_Comp      = 40;
++  strcpy (Ptr_Glob->variant.var_1.Str_Comp,
++          "DHRYSTONE PROGRAM, SOME STRING");
++  strcpy (Str_1_Loc, "DHRYSTONE PROGRAM, 1'ST STRING");
++
++  Arr_2_Glob [8][7] = 10;
++
++    Number_Of_Runs = Phase ? Requested_Runs : Warmup_Runs;
++    if (Phase) {
++      __asm__ volatile("dsb sy" ::: "memory");
++      m5_work_begin(0, 0);
++    }
++#endif
+   for (Run_Index = 1; Run_Index <= Number_Of_Runs; ++Run_Index)
+   {
+ 
+@@ -191,6 +255,33 @@
+       /* Int_1_Loc == 5 */
+ 
+   } /* loop "for Run_Index" */
++#ifdef GEM5_ROI
++    if (Phase) {
++      __asm__ volatile("dsb sy" ::: "memory");
++      m5_work_end(0, 0);
++    }
++  }
++  if (Int_Glob != 5 || Bool_Glob != 1 || Ch_1_Glob != 'A' ||
++      Ch_2_Glob != 'B' || Arr_1_Glob[8] != 7 ||
++      Arr_2_Glob[8][7] != Number_Of_Runs + 10 ||
++      Ptr_Glob->Ptr_Comp != Next_Ptr_Glob ||
++      Next_Ptr_Glob->Ptr_Comp != Next_Ptr_Glob ||
++      Ptr_Glob->Discr != Ident_1 || Next_Ptr_Glob->Discr != Ident_1 ||
++      Ptr_Glob->variant.var_1.Enum_Comp != Ident_3 ||
++      Next_Ptr_Glob->variant.var_1.Enum_Comp != Ident_2 ||
++      Ptr_Glob->variant.var_1.Int_Comp != 17 ||
++      Next_Ptr_Glob->variant.var_1.Int_Comp != 18 ||
++      strcmp(Ptr_Glob->variant.var_1.Str_Comp, "DHRYSTONE PROGRAM, SOME STRING") ||
++      strcmp(Next_Ptr_Glob->variant.var_1.Str_Comp, "DHRYSTONE PROGRAM, SOME STRING") ||
++      Int_1_Loc != 5 || Int_2_Loc != 13 || Int_3_Loc != 7 || Enum_Loc != Ident_2 ||
++      strcmp(Str_1_Loc, "DHRYSTONE PROGRAM, 1'ST STRING") ||
++      strcmp(Str_2_Loc, "DHRYSTONE PROGRAM, 2'ND STRING")) {
++    puts("DHRY_GEM5_RESULT status=FAIL");
++    return 1;
++  }
++  printf("DHRY_GEM5_RESULT status=PASS runs=%d warmup=%d cpu=0 scope=loop\n",
++         Requested_Runs, Warmup_Runs);
++#endif
+ 
+   /**************/
+   /* Stop timer */
+@@ -257,6 +348,7 @@
+   printf ("        should be:   DHRYSTONE PROGRAM, 2'ND STRING\n");
+   printf ("\n");
+ 
++#ifndef GEM5_ROI
+   User_Time = End_Time - Begin_Time;
+ 
+   if (User_Time < Too_Small_Time)
+@@ -283,6 +375,7 @@
+     printf ("%6.1f \n", Dhrystones_Per_Second);
+     printf ("\n");
+   }
++#endif
+   return 0;
+ }
+ 
